@@ -31,6 +31,8 @@ make up
 Compose uses its own database and volume. The HTTP API is bound to `127.0.0.1:8080`
 and PostgreSQL to `127.0.0.1:54329`. Keep the generated password if restarting an
 existing volume: PostgreSQL initialization does not change its stored password.
+The stack uses a normal Docker bridge so these localhost port mappings work;
+it does not block outbound network access from containers.
 Never point this demo's migration command at an existing or production database.
 
 ```bash
