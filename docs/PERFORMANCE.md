@@ -17,7 +17,7 @@ removes only each benchmark's own schema. Use a disposable database only.
 
 ## Run locally
 
-Use Go 1.26.6, record CPU/OS and PostgreSQL version, and stop other CPU-intensive
+Use the Go version pinned in `go.mod`, record CPU/OS and PostgreSQL version, and stop other CPU-intensive
 work. Run measurements sequentially, without the race detector:
 
 ```bash

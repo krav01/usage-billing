@@ -105,7 +105,7 @@ Use the dedicated one-shot migration service in Compose.
 
 ## Development and verification
 
-Go 1.26.6 is the pinned toolchain. pgx is the only direct runtime dependency;
+Go 1.27.1 is the pinned toolchain for CI and both Docker builds. pgx is the only direct runtime dependency;
 HTTP routing, logging, JSON, metrics, and tests use the standard library.
 
 ```bash
