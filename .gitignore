@@ -6,3 +6,5 @@
 /coverage.out
 *.prof
 *.test
+/http-bench.txt
+/postgres-bench.txt

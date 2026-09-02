@@ -22,7 +22,7 @@ import (
 
 // Every test gets its own synthetic schema in TEST_DATABASE_URL. The supplied
 // database must be disposable; no shared tables or existing schema are removed.
-func fixture(t *testing.T) (*postgres.Store, *pgxpool.Pool) {
+func fixture(t testing.TB) (*postgres.Store, *pgxpool.Pool) {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

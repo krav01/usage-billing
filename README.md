@@ -17,6 +17,8 @@ This is an educational project: no real customers, invoices, taxes, or payments.
 
 The database effects are idempotent; this is **not** a claim of exactly-once network delivery.
 The [design notes](docs/ARCHITECTURE.md) explain transaction boundaries and deliberate limits.
+See [verification evidence](docs/VERIFICATION.md) and
+[reproducible benchmarks](docs/PERFORMANCE.md) for measured scope and limitations.
 
 ## Run the isolated demo
 

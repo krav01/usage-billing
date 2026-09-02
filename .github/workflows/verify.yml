@@ -39,6 +39,16 @@ jobs:
           version: v2.12.2
       - name: Scan reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Measure in-process HTTP handler (not end-to-end throughput)
+        run: |
+          go version > http-bench.txt
+          go test -run='^$' -bench=BenchmarkHTTPHandler -benchmem -count=10 -cpu=1 ./internal/httpapi | tee -a http-bench.txt
+      - name: Upload HTTP benchmark samples
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: http-bench-${{ github.sha }}
+          path: http-bench.txt
+          retention-days: 14
 
   postgres-integration:
     name: PostgreSQL integration
@@ -78,6 +88,16 @@ jobs:
         run: go test -race -tags=integration -shuffle=on -count=1 -timeout=3m ./...
       - name: Vet integration tests
         run: go vet -tags=integration ./...
+      - name: Measure PostgreSQL replay and summary sequentially
+        run: |
+          go version > postgres-bench.txt
+          go test -tags=integration -run='^$' -bench=BenchmarkStore -benchmem -count=10 -cpu=1 -timeout=5m ./internal/postgres | tee -a postgres-bench.txt
+      - name: Upload PostgreSQL benchmark samples
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: postgres-bench-${{ github.sha }}
+          path: postgres-bench.txt
+          retention-days: 14
 
   docker-smoke:
     name: Docker API smoke

@@ -1,0 +1,36 @@
+goos: linux
+goarch: amd64
+pkg: github.com/krav01/usage-billing/internal/httpapi
+cpu: INTEL(R) XEON(R) PLATINUM 8573C
+BenchmarkHTTPHandler/accepted         	   51262	     20271 ns/op	   10683 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   45870	     26705 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   52785	     20168 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   83350	     24147 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   44041	     29065 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   43060	     29298 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   38908	     30970 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   34675	     30521 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   60410	     17998 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/accepted         	   69117	     15765 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   68834	     14937 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   69099	     15429 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   66938	     20397 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   89612	     16151 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   85320	     16367 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   88348	     14623 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   90009	     14821 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   79687	     14815 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   74526	     15084 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/replayed         	   67882	     15178 ns/op	   10682 B/op	     101 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  136628	      7615 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  139743	      7444 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  162590	      7531 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  178984	      7303 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  160311	      7388 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  144108	      7429 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  163840	      7470 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  146730	      7441 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  142551	      7384 ns/op	    7433 B/op	      39 allocs/op
+BenchmarkHTTPHandler/unauthorized     	  142113	      7439 ns/op	    7433 B/op	      39 allocs/op
+PASS
+ok  	github.com/krav01/usage-billing/internal/httpapi	35.910s
