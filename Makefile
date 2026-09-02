@@ -1,4 +1,4 @@
-.PHONY: test vet lint vuln build integration bench bench-postgres up down migrate
+.PHONY: test vet lint vuln build integration bench bench-postgres loadtest up down migrate
 
 test:
 	go test -race -shuffle=on -count=1 ./...
@@ -21,6 +21,9 @@ bench:
 bench-postgres:
 	@test -n "$$TEST_DATABASE_URL" || (echo 'TEST_DATABASE_URL must point to a disposable test database' >&2; exit 1)
 	go test -tags=integration -run='^$$' -bench=BenchmarkStore -benchmem -count=10 -cpu=1 -timeout=5m ./internal/postgres
+
+loadtest:
+	go run ./cmd/loadtest -allow-demo-writes -requests 500 -concurrency 8
 
 integration:
 	@test -n "$$TEST_DATABASE_URL" || (echo 'TEST_DATABASE_URL must point to an isolated, migrated test database' >&2; exit 1)
