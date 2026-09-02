@@ -1,0 +1,64 @@
+# Isolated local demo only. Both published ports bind to loopback.
+name: usage-billing-demo
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: usage_billing
+      POSTGRES_USER: billing_demo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a randomly generated hex POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing_demo -d usage_billing"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+      dockerfile: tools/migrate.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - /migrate
+      - -path=/migrations
+      - -database=postgres://billing_demo:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/usage_billing?sslmode=disable
+    command: ["up"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://billing_demo:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/usage_billing?sslmode=disable
+      BILLING_API_TOKEN: ${BILLING_API_TOKEN:?Set a randomly generated token of at least 32 bytes}
+      BILLING_RATE_MICROS: "1000"
+      HTTP_ADDR: "0.0.0.0:8080"
+      WORKER_INTERVAL: "100ms"
+      WORKER_BATCH: "100"
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 20s
+
+networks:
+  default:
+    internal: true
+
+volumes:
+  pgdata:

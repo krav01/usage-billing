@@ -1,0 +1,227 @@
+openapi: 3.0.3
+info:
+  title: Usage Billing
+  version: 0.1.0
+  description: Educational trusted-producer API. No real payments or tenant-level authorization.
+servers:
+  - url: http://127.0.0.1:8080
+security:
+  - bearerAuth: []
+paths:
+  /v1/events:
+    post:
+      operationId: acceptEvent
+      summary: Accept a new event or replay immutable input
+      description: JSON only, at most 16 KiB. Duplicate and unknown fields are rejected. New pricing must fit positive int64.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Input'
+      responses:
+        '202':
+          description: Newly accepted event, processing may still be pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '200':
+          description: Identical replay with original frozen price
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Same event ID with different customer, meter, or units
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Body exceeds 16 KiB
+        '415':
+          description: Content-Type must be application/json
+        '500':
+          $ref: '#/components/responses/Failure'
+  /v1/events/{event_id}:
+    get:
+      operationId: getEvent
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+      responses:
+        '200':
+          description: Stored input and processing state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Unknown event
+        '500':
+          $ref: '#/components/responses/Failure'
+  /v1/customers/{customer_id}/summary:
+    get:
+      operationId: getSummary
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+      responses:
+        '200':
+          description: Processed totals only, plus pending and processed counts. Unknown customer has zero totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Summary'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Failure'
+  /healthz:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Process responds; not a database check
+  /readyz:
+    get:
+      operationId: ready
+      security: []
+      responses:
+        '200':
+          description: Database ping succeeded; not a schema or backlog check
+        '503':
+          description: Database unavailable or one-second readiness timeout
+  /metrics:
+    get:
+      operationId: metrics
+      responses:
+        '200':
+          description: Fixed-route request counters in Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Configured internal producer token; grants access to all demo customers
+  schemas:
+    ID:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9_-]+$'
+    Input:
+      type: object
+      additionalProperties: false
+      required: [event_id, customer_id, meter, units]
+      properties:
+        event_id:
+          $ref: '#/components/schemas/ID'
+        customer_id:
+          $ref: '#/components/schemas/ID'
+        meter:
+          type: string
+          enum: [api_calls]
+        units:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+    Event:
+      type: object
+      required: [event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency, processed, created_at]
+      properties:
+        event_id:
+          $ref: '#/components/schemas/ID'
+        customer_id:
+          $ref: '#/components/schemas/ID'
+        meter:
+          type: string
+          enum: [api_calls]
+        units:
+          type: integer
+          format: int64
+        unit_price_micros:
+          type: integer
+          format: int64
+        amount_micros:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum: [USD]
+        processed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Summary:
+      type: object
+      required: [customer_id, currency, units, amount_micros, pending, processed]
+      properties:
+        customer_id:
+          $ref: '#/components/schemas/ID'
+        currency:
+          type: string
+          enum: [USD]
+        units:
+          type: string
+          pattern: '^[0-9]+$'
+        amount_micros:
+          type: string
+          pattern: '^[0-9]+$'
+        pending:
+          type: integer
+          format: int64
+        processed:
+          type: integer
+          format: int64
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+  responses:
+    Invalid:
+      description: Invalid identifier, input, or arithmetic overflow
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or incorrect bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Failure:
+      description: Internal failure; retry acceptance only with the same event ID and input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
