@@ -269,7 +269,7 @@ func summary(ctx context.Context, client *http.Client, cfg config, customer stri
 	return value, err
 }
 
-func request(ctx context.Context, client *http.Client, cfg config, method, path, data string, want int, target any) error {
+func request(ctx context.Context, client *http.Client, cfg config, method, path, data string, want int, target any) (err error) {
 	req, err := http.NewRequestWithContext(ctx, method, cfg.baseURL+path, strings.NewReader(data))
 	if err != nil {
 		return errors.New("cannot build request")
@@ -280,7 +280,11 @@ func request(ctx context.Context, client *http.Client, cfg config, method, path,
 	if err != nil {
 		return errors.New("HTTP request failed")
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil && err == nil {
+			err = errors.New("cannot close HTTP response")
+		}
+	}()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 16*1024+1))
 	if err != nil || len(body) > 16*1024 || response.StatusCode != want {
 		return errors.New("unexpected HTTP response")
