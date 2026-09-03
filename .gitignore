@@ -9,3 +9,4 @@
 /http-bench.txt
 /postgres-bench.txt
 /.local/
+__pycache__/
