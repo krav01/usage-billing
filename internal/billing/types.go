@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid usage event")
-	ErrConflict = errors.New("event identifier already used for different input")
-	ErrNotFound = errors.New("event not found")
+	ErrInvalid   = errors.New("invalid usage event")
+	ErrConflict  = errors.New("event identifier already used for different input")
+	ErrNotFound  = errors.New("event not found")
+	ErrQueueFull = errors.New("pending queue is full")
 )
 
 type Input struct {

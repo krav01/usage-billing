@@ -46,6 +46,7 @@ services:
       DATABASE_URL: postgres://billing_demo:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/usage_billing?sslmode=disable
       BILLING_API_TOKEN: ${BILLING_API_TOKEN:?Set a randomly generated token of at least 32 bytes}
       BILLING_RATE_MICROS: "1000"
+      BILLING_MAX_PENDING_EVENTS: "${BILLING_MAX_PENDING_EVENTS:-10000}"
       HTTP_ADDR: "0.0.0.0:8080"
       WORKER_INTERVAL: "100ms"
       WORKER_BATCH: "100"

@@ -48,7 +48,7 @@ func TestRunRetriesWithoutBusyLoopOrSecretLogs(t *testing.T) {
 		if calls.Load() != 1 {
 			t.Fatalf("initial calls = %d, want 1", calls.Load())
 		}
-		time.Sleep(time.Second - time.Nanosecond)
+		time.Sleep(2*time.Second - time.Nanosecond)
 		synctest.Wait()
 		if calls.Load() != 1 {
 			t.Fatalf("retried before delay: %d calls", calls.Load())
@@ -72,6 +72,46 @@ func TestRunRetriesWithoutBusyLoopOrSecretLogs(t *testing.T) {
 		if stats.Running || stats.BatchInFlight || stats.BatchAttempts != 2 ||
 			stats.BatchErrors != 1 || stats.BatchCancellations != 0 || stats.EventsProcessed != 2 {
 			t.Fatalf("unexpected worker metrics: %+v", stats)
+		}
+	})
+}
+
+func TestRunBackoffCapsResetsAndCancels(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var calls atomic.Int64
+		p := processorFunc(func(context.Context, int) (int, error) {
+			n := calls.Add(1)
+			if n <= 6 || n == 8 {
+				return 0, errors.New("synthetic batch error")
+			}
+			return 1, nil
+		})
+		w := worker.New(p, time.Second, 1, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		done := make(chan error, 1)
+		go func() { done <- w.Run(ctx) }()
+		synctest.Wait()
+		if calls.Load() != 1 {
+			t.Fatal("worker did not start immediately")
+		}
+		for i, delay := range []time.Duration{2, 4, 8, 16, 30, 30, 1} {
+			time.Sleep(delay*time.Second - time.Nanosecond)
+			synctest.Wait()
+			if calls.Load() != int64(i+1) {
+				t.Fatalf("attempt before delay %v: calls=%d", delay, calls.Load())
+			}
+			time.Sleep(time.Nanosecond)
+			synctest.Wait()
+			if calls.Load() != int64(i+2) {
+				t.Fatalf("missing attempt after delay %v: calls=%d", delay, calls.Load())
+			}
+		}
+		start := time.Now()
+		cancel()
+		if err := <-done; err != nil || time.Since(start) != 0 {
+			t.Fatalf("backoff shutdown was not immediate: %v", err)
 		}
 	})
 }

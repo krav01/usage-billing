@@ -78,6 +78,19 @@ func event(id, customer string, units, price int64) billing.Event {
 	}
 }
 
+func TestNewWithQueueLimit(t *testing.T) {
+	t.Parallel()
+	_, pool := fixture(t)
+	for _, limit := range []int64{-1, 0, 1000001} {
+		if _, err := postgres.NewWithQueueLimit(pool, limit); err == nil {
+			t.Errorf("invalid queue limit accepted: %d", limit)
+		}
+	}
+	if _, err := postgres.NewWithQueueLimit(nil, 1); err == nil {
+		t.Fatal("nil pool accepted")
+	}
+}
+
 func TestAcceptConcurrentReplayFrozenPriceAndConflict(t *testing.T) {
 	t.Parallel()
 	store, _ := fixture(t)
@@ -117,6 +130,73 @@ func TestAcceptConcurrentReplayFrozenPriceAndConflict(t *testing.T) {
 	if err != nil || summary.Pending != 1 || summary.Processed != 0 || summary.AmountMicros != "0" {
 		t.Fatalf("pending summary: %+v, %v", summary, err)
 	}
+}
+
+func TestQueueCapacityConcurrentAdmissionsAndReplay(t *testing.T) {
+	t.Parallel()
+	_, pool := fixture(t)
+	const capacity = 3
+	stores := make([]*postgres.Store, 2)
+	for i := range stores {
+		var err error
+		stores[i], err = postgres.NewWithQueueLimit(pool, capacity)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var accepted, rejected atomic.Int64
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			input := event(fmt.Sprintf("bounded-%d", i), "bounded", 1, 1000)
+			_, created, err := stores[i%len(stores)].Accept(t.Context(), input)
+			switch {
+			case err == nil && created:
+				accepted.Add(1)
+			case errors.Is(err, billing.ErrQueueFull):
+				rejected.Add(1)
+				if _, err := stores[0].Get(t.Context(), input.EventID); !errors.Is(err, billing.ErrNotFound) {
+					t.Errorf("rejected input survived rollback: %v", err)
+				}
+			default:
+				t.Errorf("unexpected admission result: created=%v err=%v", created, err)
+			}
+		})
+	}
+	wg.Wait()
+	if accepted.Load() != capacity || rejected.Load() != 17 {
+		t.Fatalf("accepted=%d rejected=%d", accepted.Load(), rejected.Load())
+	}
+	assertSummary(t, stores[0], "bounded", "0", "0", capacity, 0)
+	lowered, err := postgres.NewWithQueueLimit(pool, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lowered.Accept(t.Context(), event("lowered-limit", "bounded", 1, 1000)); !errors.Is(err, billing.ErrQueueFull) {
+		t.Fatalf("lowered limit must reject new work: %v", err)
+	}
+	assertSummary(t, lowered, "bounded", "0", "0", capacity, 0)
+	var id string
+	if err := pool.QueryRow(t.Context(), `SELECT event_id FROM pending_events ORDER BY event_id LIMIT 1`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	input := event(id, "bounded", 1, 2000)
+	got, created, err := stores[1].Accept(t.Context(), input)
+	if err != nil || created || got.AmountMicros != 1000 {
+		t.Fatalf("full queue rejected replay or changed price: %+v created=%v err=%v", got, created, err)
+	}
+	input.Units++
+	input.AmountMicros = input.Units * input.UnitPriceMicros
+	if _, _, err := stores[0].Accept(t.Context(), input); !errors.Is(err, billing.ErrConflict) {
+		t.Fatalf("full queue masked conflict: %v", err)
+	}
+	if n, err := stores[0].ProcessBatch(t.Context(), 1); err != nil || n != 1 {
+		t.Fatalf("free one slot: n=%d err=%v", n, err)
+	}
+	if _, created, err := stores[1].Accept(t.Context(), event("after-drain", "bounded", 1, 1000)); err != nil || !created {
+		t.Fatalf("admission did not recover: created=%v err=%v", created, err)
+	}
+	assertSummary(t, stores[0], "bounded", "1", "1000", capacity, 1)
 }
 
 func TestAcceptRollsBackWhenQueueInsertionFails(t *testing.T) {

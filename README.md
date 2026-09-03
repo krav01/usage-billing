@@ -96,6 +96,7 @@ See [Failure and recovery verification](docs/RESILIENCE.md) for the CI database-
 | `DATABASE_URL` | required | New demo database connection, never logged |
 | `BILLING_API_TOKEN` | required | 32–4096 printable ASCII bytes, no whitespace; generate randomly |
 | `BILLING_RATE_MICROS` | `1000` | Positive integer micro-USD per API call |
+| `BILLING_MAX_PENDING_EVENTS` | `10000` | Maximum pending queue depth, 1–1000000; shared across API instances |
 | `HTTP_ADDR` | `127.0.0.1:8080` | Listener; Compose binds inside its container |
 | `WORKER_INTERVAL` | `100ms` | Polling delay, 10ms–1m |
 | `WORKER_BATCH` | `100` | Batch size, 1–1000 |

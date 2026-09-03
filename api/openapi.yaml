@@ -46,6 +46,18 @@ paths:
           description: Body exceeds 16 KiB
         '415':
           description: Content-Type must be application/json
+        '503':
+          description: Pending queue is full. New event was not accepted; replay the same ID after backoff. Identical accepted replays remain available.
+          headers:
+            Retry-After:
+              description: Minimum retry delay in seconds, not a guarantee of available capacity
+              schema:
+                type: integer
+                example: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/Failure'
   /v1/events/{event_id}:

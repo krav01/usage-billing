@@ -25,6 +25,12 @@ func TestLoadConfig(t *testing.T) {
 		{name: "unbounded batch", key: "WORKER_BATCH", value: "1001", wantError: true},
 		{name: "zero interval", key: "WORKER_INTERVAL", value: "0", wantError: true},
 		{name: "bad address", key: "HTTP_ADDR", value: "secret", wantError: true},
+		{name: "minimum queue", key: "BILLING_MAX_PENDING_EVENTS", value: "1"},
+		{name: "maximum queue", key: "BILLING_MAX_PENDING_EVENTS", value: "1000000"},
+		{name: "zero queue", key: "BILLING_MAX_PENDING_EVENTS", value: "0", wantError: true},
+		{name: "negative queue", key: "BILLING_MAX_PENDING_EVENTS", value: "-1", wantError: true},
+		{name: "unbounded queue", key: "BILLING_MAX_PENDING_EVENTS", value: "1000001", wantError: true},
+		{name: "invalid queue", key: "BILLING_MAX_PENDING_EVENTS", value: "secret", wantError: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -45,6 +51,9 @@ func TestLoadConfig(t *testing.T) {
 			}
 			if !tt.wantError && cfg.workerBatch < 1 {
 				t.Fatal("missing defaults")
+			}
+			if !tt.wantError && tt.key != "BILLING_MAX_PENDING_EVENTS" && cfg.maxPendingEvents != 10000 {
+				t.Fatal("missing queue default")
 			}
 		})
 	}

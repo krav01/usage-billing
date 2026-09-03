@@ -263,6 +263,7 @@ func TestErrorsDoNotLeak(t *testing.T) {
 		{name: "conflict", err: billing.ErrConflict, status: 409},
 		{name: "missing", err: billing.ErrNotFound, status: 404},
 		{name: "internal", err: errors.New("postgres://sensitive-password secret SQL"), status: 500},
+		{name: "queue full", err: fmt.Errorf("wrapped: %w", billing.ErrQueueFull), status: 503},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -280,6 +281,16 @@ func TestErrorsDoNotLeak(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestQueueFullResponse(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, fakeService{err: fmt.Errorf("wrapped: %w", billing.ErrQueueFull)}, io.Discard)
+	w := request(h, http.MethodPost, "/v1/events", validBody)
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "1" ||
+		strings.TrimSpace(w.Body.String()) != `{"error":"queue_full"}` {
+		t.Fatalf("queue full response: status=%d headers=%v body=%s", w.Code, w.Header(), w.Body)
 	}
 }
 
