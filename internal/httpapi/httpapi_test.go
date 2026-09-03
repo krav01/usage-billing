@@ -494,32 +494,29 @@ func TestRequestIDCorrelation(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
 	h := newHandler(t, fakeService{}, &logs)
-	const requestID = "screening-demo-42"
 	r := httptest.NewRequest(http.MethodGet, "/v1/events/event-1", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
-	r.Header.Set("X-Request-ID", requestID)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != http.StatusOK || w.Header().Get("X-Request-ID") != requestID {
-		t.Fatalf("status=%d request_id=%q", w.Code, w.Header().Get("X-Request-ID"))
+	got := w.Header().Get("X-Request-ID")
+	if w.Code != http.StatusOK || !requestIDFormat(got) {
+		t.Fatalf("status=%d request_id=%q", w.Code, got)
 	}
-	if !strings.Contains(logs.String(), `"request_id":"screening-demo-42"`) {
+	if !strings.Contains(logs.String(), `"request_id":"`+got+`"`) {
 		t.Fatalf("request ID missing from log: %s", logs.String())
 	}
 }
 
-func TestGeneratedRequestID(t *testing.T) {
+func TestRequestIDIsServerGenerated(t *testing.T) {
 	t.Parallel()
 	h := newHandler(t, fakeService{}, io.Discard)
-	for _, supplied := range []string{"", "contains space", strings.Repeat("a", 65)} {
-		r := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-		r.Header.Set("X-Request-ID", supplied)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		got := w.Header().Get("X-Request-ID")
-		if got == "" || got == supplied || !requestIDFormat(got) {
-			t.Fatalf("supplied=%q generated=%q", supplied, got)
-		}
+	r := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	r.Header.Set("X-Request-ID", "screening-demo-42")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	got := w.Header().Get("X-Request-ID")
+	if !requestIDFormat(got) || got == "screening-demo-42" {
+		t.Fatalf("server-generated request_id=%q", got)
 	}
 }
 
