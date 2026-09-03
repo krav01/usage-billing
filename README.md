@@ -92,6 +92,7 @@ int64. JSON bodies are limited to 16 KiB, with unknown or duplicate fields rejec
 See [OpenAPI](api/openapi.yaml) for request and response schemas and
 [Operations](docs/OPERATIONS.md) for metric semantics and example alerts.
 See [Failure and recovery verification](docs/RESILIENCE.md) for the CI database-crash scenario and its limits.
+See [backup/restore verification](docs/BACKUP_RESTORE.md) for full-row comparisons and processing after restore.
 An optional [local Prometheus/Grafana demo](docs/MONITORING.md) includes a provisioned dashboard and tested alerts.
 
 ## Configuration
