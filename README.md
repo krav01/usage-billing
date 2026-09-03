@@ -77,7 +77,7 @@ normal startup path.
 | GET | `/v1/customers/{customer_id}/summary` | Exact processed totals and queue counts |
 | GET | `/healthz` | Process liveness, public |
 | GET | `/readyz` | Bounded database reachability check, public |
-| GET | `/metrics` | Fixed-label request counters, authenticated |
+| GET | `/metrics` | Fixed-label HTTP, queue, and worker metrics, authenticated |
 
 Business endpoints and metrics require a bearer token. This token represents
 one trusted internal producer, **not** tenant-level authorization. IDs contain
@@ -85,7 +85,8 @@ one trusted internal producer, **not** tenant-level authorization. IDs contain
 Units must be a positive int64 and the accepted price multiplication must fit in
 int64. JSON bodies are limited to 16 KiB, with unknown or duplicate fields rejected.
 
-See [OpenAPI](api/openapi.yaml) for request and response schemas.
+See [OpenAPI](api/openapi.yaml) for request and response schemas and
+[Operations](docs/OPERATIONS.md) for metric semantics and example alerts.
 
 ## Configuration
 

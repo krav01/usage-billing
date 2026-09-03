@@ -108,6 +108,23 @@ func (s *Store) Summary(ctx context.Context, customer string) (billing.Summary, 
 	return summary, nil
 }
 
+// QueueStats reports global durable backlog state with one consistent statement.
+func (s *Store) QueueStats(ctx context.Context) (int64, float64, error) {
+	var pending int64
+	var oldestAgeSeconds float64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(EXTRACT(EPOCH FROM statement_timestamp() - MIN(enqueued_at)), 0)::double precision
+		FROM pending_events`).Scan(&pending, &oldestAgeSeconds)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read pending queue metrics: %w", err)
+	}
+	if oldestAgeSeconds < 0 {
+		oldestAgeSeconds = 0
+	}
+	return pending, oldestAgeSeconds, nil
+}
+
 // ProcessBatch claims a bounded set of unlocked items. Ledger insertion and
 // queue removal share a transaction; cancellation/crash rolls both back. Unique
 // ledger IDs make retries harmless, without promising external exactly-once I/O.

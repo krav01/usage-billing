@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -29,6 +30,15 @@ type fakeService struct {
 }
 
 type waitingService struct{ fakeService }
+
+type metricsSource struct {
+	called atomic.Bool
+}
+
+func (m *metricsSource) Metrics(context.Context) string {
+	m.called.Store(true)
+	return "synthetic_operational_metric 7"
+}
 
 func (waitingService) Get(ctx context.Context, _ string) (billing.Event, error) {
 	<-ctx.Done()
@@ -88,6 +98,10 @@ func TestNew(t *testing.T) {
 	}
 	if _, err := httpapi.New(fakeService{}, ready, token, nil); err == nil {
 		t.Error("nil logger accepted")
+	}
+	var nilSource *metricsSource
+	if _, err := httpapi.New(fakeService{}, ready, token, logger, nilSource, nilSource); err == nil {
+		t.Error("multiple metrics sources accepted")
 	}
 }
 
@@ -320,6 +334,30 @@ func TestFixedMetricsAndConcurrentRequests(t *testing.T) {
 		if strings.Contains(w.Body.String()+logs.String(), forbidden) {
 			t.Fatalf("unbounded or secret label/log: %q", forbidden)
 		}
+	}
+}
+
+func TestOperationalMetricsRequireAuthentication(t *testing.T) {
+	t.Parallel()
+	source := &metricsSource{}
+	h, err := httpapi.New(
+		fakeService{},
+		func(context.Context) error { return nil },
+		token,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		source,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthorized := httptest.NewRecorder()
+	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if unauthorized.Code != http.StatusUnauthorized || source.called.Load() {
+		t.Fatalf("unauthorized status=%d, source called=%v", unauthorized.Code, source.called.Load())
+	}
+	w := request(h, http.MethodGet, "/metrics", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "synthetic_operational_metric 7\n") {
+		t.Fatalf("authorized metrics status=%d body=%q", w.Code, w.Body.String())
 	}
 }
 

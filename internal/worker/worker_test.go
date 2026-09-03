@@ -68,6 +68,11 @@ func TestRunRetriesWithoutBusyLoopOrSecretLogs(t *testing.T) {
 		if !strings.Contains(logs.String(), "retry scheduled") || !strings.Contains(logs.String(), "completed") {
 			t.Fatal("missing retry or recovery log")
 		}
+		stats := w.Snapshot()
+		if stats.Running || stats.BatchInFlight || stats.BatchAttempts != 2 ||
+			stats.BatchErrors != 1 || stats.BatchCancellations != 0 || stats.EventsProcessed != 2 {
+			t.Fatalf("unexpected worker metrics: %+v", stats)
+		}
 	})
 }
 
@@ -90,7 +95,34 @@ func TestRunCancelsInFlightBatch(t *testing.T) {
 		if err := <-done; err != nil {
 			t.Fatalf("cancellation returned %v", err)
 		}
+		stats := w.Snapshot()
+		if stats.Running || stats.BatchInFlight || stats.BatchAttempts != 1 ||
+			stats.BatchErrors != 0 || stats.BatchCancellations != 1 || stats.EventsProcessed != 0 {
+			t.Fatalf("unexpected cancellation metrics: %+v", stats)
+		}
 	})
+}
+
+func TestRunRejectsConcurrentExecution(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	p := processorFunc(func(ctx context.Context, _ int) (int, error) {
+		close(started)
+		<-ctx.Done()
+		return 0, ctx.Err()
+	})
+	w := worker.New(p, time.Hour, 1, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+	<-started
+	if err := w.Run(t.Context()); err == nil {
+		t.Fatal("concurrent execution accepted")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRunRejectsInvalidConfiguration(t *testing.T) {

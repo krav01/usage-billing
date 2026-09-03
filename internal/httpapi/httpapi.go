@@ -29,12 +29,17 @@ type Service interface {
 	Summary(context.Context, string) (billing.Summary, error)
 }
 
+type MetricsSource interface {
+	Metrics(context.Context) string
+}
+
 type handler struct {
-	service   Service
-	readiness func(context.Context) error
-	tokenHash [sha256.Size]byte
-	logger    *slog.Logger
-	requests  [7][6]atomic.Uint64
+	service       Service
+	readiness     func(context.Context) error
+	tokenHash     [sha256.Size]byte
+	logger        *slog.Logger
+	requests      [7][6]atomic.Uint64
+	metricsSource MetricsSource
 }
 
 // New builds an internal API. Its shared bearer token grants access to every
@@ -44,6 +49,7 @@ func New(
 	readiness func(context.Context) error,
 	token string,
 	logger *slog.Logger,
+	metricsSources ...MetricsSource,
 ) (http.Handler, error) {
 	if service == nil || readiness == nil || logger == nil {
 		return nil, errors.New("service, readiness callback, and logger are required")
@@ -56,8 +62,16 @@ func New(
 			return nil, errors.New("API token must contain printable ASCII without whitespace")
 		}
 	}
+	if len(metricsSources) > 1 || len(metricsSources) == 1 && metricsSources[0] == nil {
+		return nil, errors.New("at most one non-nil metrics source is allowed")
+	}
+	var metricsSource MetricsSource
+	if len(metricsSources) == 1 {
+		metricsSource = metricsSources[0]
+	}
 	return &handler{
-		service: service, readiness: readiness, tokenHash: sha256.Sum256([]byte(token)), logger: logger,
+		service: service, readiness: readiness, tokenHash: sha256.Sum256([]byte(token)),
+		logger: logger, metricsSource: metricsSource,
 	}, nil
 }
 
@@ -155,7 +169,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, index int, id st
 		}
 		return h.writeJSON(w, http.StatusOK, summary)
 	default:
-		return h.metrics(w)
+		return h.metrics(w, r.Context())
 	}
 }
 
@@ -293,7 +307,7 @@ func (h *handler) writeJSON(w http.ResponseWriter, status int, value any) int {
 	return status
 }
 
-func (h *handler) metrics(w http.ResponseWriter) int {
+func (h *handler) metrics(w http.ResponseWriter, ctx context.Context) int {
 	var body strings.Builder
 	body.WriteString("# HELP usage_billing_http_requests_total Completed HTTP requests.\n")
 	body.WriteString("# TYPE usage_billing_http_requests_total counter\n")
@@ -307,6 +321,13 @@ func (h *handler) metrics(w http.ResponseWriter) int {
 				fmt.Sprintf("%dxx", class),
 				h.requests[index][class].Load(),
 			)
+		}
+	}
+	if h.metricsSource != nil {
+		operational := h.metricsSource.Metrics(ctx)
+		body.WriteString(operational)
+		if operational != "" && !strings.HasSuffix(operational, "\n") {
+			body.WriteByte('\n')
 		}
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
