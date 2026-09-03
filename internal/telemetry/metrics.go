@@ -11,7 +11,7 @@ import (
 	"github.com/krav01/usage-billing/internal/worker"
 )
 
-type QueueStatsFunc func(context.Context) (pending int64, oldestAgeSeconds float64, err error)
+type QueueStatsFunc func(context.Context) (pending, failed int64, oldestAgeSeconds float64, err error)
 
 type Collector struct {
 	queueStats  QueueStatsFunc
@@ -29,7 +29,7 @@ func New(queueStats QueueStatsFunc, workerStats func() worker.Stats) (*Collector
 // Metrics returns Prometheus text with no business identifiers or unbounded labels.
 func (c *Collector) Metrics(ctx context.Context) string {
 	var body strings.Builder
-	pending, age, err := c.queueStats(ctx)
+	pending, failed, age, err := c.queueStats(ctx)
 	body.WriteString("# HELP usage_billing_queue_scrape_success Whether the latest queue query succeeded.\n")
 	body.WriteString("# TYPE usage_billing_queue_scrape_success gauge\n")
 	if err != nil {
@@ -40,6 +40,10 @@ func (c *Collector) Metrics(ctx context.Context) string {
 		body.WriteString("# HELP usage_billing_queue_pending_events Durable events waiting for the worker.\n")
 		body.WriteString("# TYPE usage_billing_queue_pending_events gauge\n")
 		writeInt(&body, "usage_billing_queue_pending_events ", pending)
+		// Alert: usage_billing_queue_failed_events > 0, gated by scrape success.
+		body.WriteString("# HELP usage_billing_queue_failed_events Durable events requiring manual recovery.\n")
+		body.WriteString("# TYPE usage_billing_queue_failed_events gauge\n")
+		writeInt(&body, "usage_billing_queue_failed_events ", failed)
 		body.WriteString("# HELP usage_billing_queue_oldest_event_age_seconds Age of the oldest pending event.\n")
 		body.WriteString("# TYPE usage_billing_queue_oldest_event_age_seconds gauge\n")
 		writeFloat(&body, "usage_billing_queue_oldest_event_age_seconds ", age)

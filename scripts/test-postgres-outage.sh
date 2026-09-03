@@ -121,7 +121,7 @@ test "$status" = 503
 status=$(request -o "$test_dir/metrics.txt" -w '%{http_code}' http://127.0.0.1:8080/metrics)
 test "$status" = 200
 grep -Fxq 'usage_billing_queue_scrape_success 0' "$test_dir/metrics.txt"
-if grep -Eq '^usage_billing_queue_(pending_events|oldest_event_age_seconds) ' "$test_dir/metrics.txt"; then
+if grep -Eq '^usage_billing_queue_(pending_events|failed_events|oldest_event_age_seconds) ' "$test_dir/metrics.txt"; then
   echo 'Unavailable queue metrics were incorrectly reported as measurements' >&2
   exit 1
 fi

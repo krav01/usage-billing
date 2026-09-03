@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Usage Billing
-  version: 0.2.0
+  version: 0.3.0-dev
   description: Educational trusted-producer API. No real payments or tenant-level authorization.
 servers:
   - url: http://127.0.0.1:8080
@@ -84,6 +84,62 @@ paths:
           description: Unknown event
         '500':
           $ref: '#/components/responses/Failure'
+  /v1/events/{event_id}/retry:
+    post:
+      operationId: retryEvent
+      summary: Reactivate one failed generation without repricing
+      description: Uses the existing trusted-producer token. Failed work retains its admission slot. Resend the same generation after a lost response; do not automatically advance it on conflict. JSON only, at most 16 KiB, duplicate and unknown fields rejected.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [retry_generation]
+              properties:
+                retry_generation:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  maximum: 9223372036854775806
+      responses:
+        '202':
+          description: Reactivated the failed event and incremented its generation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '200':
+          description: No mutation; the same generation was already reactivated and is pending, or the event is processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Unknown event
+        '409':
+          description: retry_conflict; no matching failed generation or previously applied pending retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Body exceeds 16 KiB
+        '415':
+          description: Content-Type must be application/json
+        '500':
+          $ref: '#/components/responses/Failure'
   /v1/customers/{customer_id}/summary:
     get:
       operationId: getSummary
@@ -95,7 +151,7 @@ paths:
             $ref: '#/components/schemas/ID'
       responses:
         '200':
-          description: Processed totals only, plus pending and processed counts. Unknown customer has zero totals.
+          description: Processed totals only, plus separate pending, failed and processed counts. Unknown customer has zero totals.
           content:
             application/json:
               schema:
@@ -165,7 +221,7 @@ components:
           maximum: 9223372036854775807
     Event:
       type: object
-      required: [event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency, processed, created_at]
+      required: [event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency, processed, created_at, failed, processing_failures, failure_code, retry_generation]
       properties:
         event_id:
           $ref: '#/components/schemas/ID'
@@ -191,9 +247,26 @@ components:
         created_at:
           type: string
           format: date-time
+        failed:
+          type: boolean
+          description: Three integrity failures require manual recovery
+        processing_failures:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: Confirmed integrity failures in the active cycle; zero after successful processing
+        failure_code:
+          type: string
+          enum: ['', '23502', '23503', '23505', '23514', '23P01']
+          description: Latest allowlisted SQLSTATE; never a raw driver message
+        retry_generation:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Active queue reactivation generation; zero after successful queue removal
     Summary:
       type: object
-      required: [customer_id, currency, units, amount_micros, pending, processed]
+      required: [customer_id, currency, units, amount_micros, pending, processed, failed]
       properties:
         customer_id:
           $ref: '#/components/schemas/ID'
@@ -210,6 +283,9 @@ components:
           type: integer
           format: int64
         processed:
+          type: integer
+          format: int64
+        failed:
           type: integer
           format: int64
     Error:

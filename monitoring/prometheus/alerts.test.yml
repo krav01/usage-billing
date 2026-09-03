@@ -2,6 +2,29 @@ rule_files:
   - alerts.yml
 evaluation_interval: 1m
 tests:
+  - name: quarantined events alert after a delay and resolve after recovery
+    interval: 1m
+    input_series:
+      - series: 'usage_billing_queue_scrape_success{job="usage-billing",instance="api:8080"}'
+        values: '1 1 1 0'
+      - series: 'usage_billing_queue_failed_events{job="usage-billing",instance="api:8080"}'
+        values: '1 1 0 1'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: BillingEventsQuarantined
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: BillingEventsQuarantined
+        exp_alerts:
+          - exp_labels: {job: usage-billing, instance: 'api:8080', severity: warning}
+            exp_annotations: {summary: Billing events require manual recovery}
+      - eval_time: 2m
+        alertname: BillingEventsQuarantined
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: BillingEventsQuarantined
+        exp_alerts: []
+
   - name: healthy idle service does not alert
     interval: 1m
     input_series:
@@ -11,6 +34,8 @@ tests:
         values: '1x10'
       - series: 'usage_billing_queue_oldest_event_age_seconds{job="usage-billing",instance="api:8080"}'
         values: '0x10'
+      - series: 'usage_billing_queue_failed_events{job="usage-billing",instance="api:8080"}'
+        values: '0x10'
       - series: 'usage_billing_worker_running{job="usage-billing",instance="api:8080"}'
         values: '1x10'
       - series: 'usage_billing_worker_batch_attempts_total{job="usage-billing",instance="api:8080"}'
@@ -18,6 +43,9 @@ tests:
       - series: 'usage_billing_worker_batch_errors_total{job="usage-billing",instance="api:8080"}'
         values: '0x10'
     alert_rule_test:
+      - eval_time: 5m
+        alertname: BillingEventsQuarantined
+        exp_alerts: []
       - eval_time: 5m
         alertname: BillingTargetDown
         exp_alerts: []

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -27,6 +28,7 @@ type Service interface {
 	Accept(context.Context, billing.Input) (billing.Event, bool, error)
 	Get(context.Context, string) (billing.Event, error)
 	Summary(context.Context, string) (billing.Summary, error)
+	Retry(context.Context, string, int64) (billing.Event, bool, error)
 }
 
 type MetricsSource interface {
@@ -38,7 +40,7 @@ type handler struct {
 	readiness     func(context.Context) error
 	tokenHash     [sha256.Size]byte
 	logger        *slog.Logger
-	requests      [7][6]atomic.Uint64
+	requests      [8][6]atomic.Uint64
 	metricsSource MetricsSource
 }
 
@@ -76,7 +78,7 @@ func New(
 }
 
 // Route indices and metric labels are fixed; client IDs and URLs never become labels.
-var routeNames = [...]string{"unmatched", "health", "ready", "accept", "event", "summary", "metrics"}
+var routeNames = [...]string{"unmatched", "health", "ready", "accept", "event", "summary", "metrics", "retry"}
 
 func route(path string) (int, string) {
 	switch path {
@@ -96,6 +98,9 @@ func route(path string) (int, string) {
 		}
 	}
 	if len(parts) == 5 {
+		if parts[1] == "v1" && parts[2] == "events" && parts[4] == "retry" {
+			return 7, parts[3]
+		}
 		customerRoute := parts[1] == "v1" && parts[2] == "customers"
 		if customerRoute && parts[4] == "summary" {
 			return 5, parts[3]
@@ -137,7 +142,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, index int, id st
 		return h.fail(w, http.StatusNotFound, "not_found")
 	}
 	method := http.MethodGet
-	if index == 3 {
+	if index == 3 || index == 7 {
 		method = http.MethodPost
 	}
 	if r.Method != method {
@@ -168,6 +173,8 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, index int, id st
 			return h.serviceError(w, err)
 		}
 		return h.writeJSON(w, http.StatusOK, summary)
+	case 7:
+		return h.retry(w, r, id)
 	default:
 		return h.metrics(w, r.Context())
 	}
@@ -188,17 +195,9 @@ func (h *handler) authorized(r *http.Request) bool {
 }
 
 func (h *handler) accept(w http.ResponseWriter, r *http.Request) int {
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || contentType != "application/json" {
-		return h.fail(w, http.StatusUnsupportedMediaType, "json_required")
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			return h.fail(w, http.StatusRequestEntityTooLarge, "body_too_large")
-		}
-		return h.fail(w, http.StatusBadRequest, "invalid_json")
+	data, status := h.readBody(w, r)
+	if status != 0 {
+		return status
 	}
 	input, err := decodeInput(data)
 	if err != nil {
@@ -208,11 +207,80 @@ func (h *handler) accept(w http.ResponseWriter, r *http.Request) int {
 	if err != nil {
 		return h.serviceError(w, err)
 	}
-	status := http.StatusOK
+	status = http.StatusOK
 	if created {
 		status = http.StatusAccepted
 	}
 	return h.writeJSON(w, status, event)
+}
+
+func (h *handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, int) {
+	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || contentType != "application/json" {
+		return nil, h.fail(w, http.StatusUnsupportedMediaType, "json_required")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			return nil, h.fail(w, http.StatusRequestEntityTooLarge, "body_too_large")
+		}
+		return nil, h.fail(w, http.StatusBadRequest, "invalid_json")
+	}
+	return data, 0
+}
+
+func (h *handler) retry(w http.ResponseWriter, r *http.Request, id string) int {
+	data, status := h.readBody(w, r)
+	if status != 0 {
+		return status
+	}
+	generation, err := decodeRetry(data)
+	if err != nil {
+		return h.fail(w, http.StatusBadRequest, "invalid_json")
+	}
+	event, retried, err := h.service.Retry(r.Context(), id, generation)
+	if err != nil {
+		return h.serviceError(w, err)
+	}
+	status = http.StatusOK
+	if retried {
+		status = http.StatusAccepted
+	}
+	return h.writeJSON(w, status, event)
+}
+
+func decodeRetry(data []byte) (int64, error) {
+	if !utf8.Valid(data) {
+		return 0, billing.ErrInvalid
+	}
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.UseNumber()
+	if token, err := d.Token(); err != nil || token != json.Delim('{') {
+		return 0, billing.ErrInvalid
+	}
+	if token, err := d.Token(); err != nil || token != "retry_generation" {
+		return 0, billing.ErrInvalid
+	}
+	token, err := d.Token()
+	if err != nil {
+		return 0, billing.ErrInvalid
+	}
+	number, ok := token.(json.Number)
+	if !ok {
+		return 0, billing.ErrInvalid
+	}
+	generation, err := strconv.ParseInt(string(number), 10, 64)
+	if err != nil || generation < 0 {
+		return 0, billing.ErrInvalid
+	}
+	if token, err := d.Token(); err != nil || token != json.Delim('}') {
+		return 0, billing.ErrInvalid
+	}
+	if _, err := d.Token(); !errors.Is(err, io.EOF) {
+		return 0, billing.ErrInvalid
+	}
+	return generation, nil
 }
 
 // Decode keys explicitly because encoding/json otherwise accepts duplicate and
@@ -280,6 +348,8 @@ func (h *handler) serviceError(w http.ResponseWriter, err error) int {
 		return h.fail(w, http.StatusBadRequest, "invalid_input")
 	case errors.Is(err, billing.ErrConflict):
 		return h.fail(w, http.StatusConflict, "event_conflict")
+	case errors.Is(err, billing.ErrRetryConflict):
+		return h.fail(w, http.StatusConflict, "retry_conflict")
 	case errors.Is(err, billing.ErrNotFound):
 		return h.fail(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, billing.ErrQueueFull):

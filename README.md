@@ -15,6 +15,7 @@ This is an educational project: no real customers, invoices, taxes, or payments.
 - Integer pricing, overflow checks, and exact decimal-string aggregate totals.
 - Strict JSON validation, a trusted-producer bearer token, bounded requests, and graceful shutdown.
 - Bounded queue admission, worker retry backoff, and verified database-crash recovery.
+- Durable event quarantine after three integrity failures, with generation-checked manual recovery.
 - Full-service load measurements and optional local monitoring with tested alerts.
 
 The database effects are idempotent; this is **not** a claim of exactly-once network delivery.
@@ -61,7 +62,7 @@ curl --fail-with-body http://127.0.0.1:8080/v1/customers/demo_customer/summary \
 make down
 ```
 
-Summary amounts and units include only processed events. Pending and processed
+Summary amounts and units include only processed events. Pending, failed, and processed
 counts are separate, so a freshly accepted event need not appear in the amount
 yet. The default rate is 1000 micro-USD per call: seven calls produce `"7000"`
 micro-USD after processing. Aggregate amounts/units are decimal strings so JSON
@@ -78,6 +79,7 @@ normal startup path.
 | --- | --- | --- |
 | POST | `/v1/events` | Accept new usage or replay an earlier event |
 | GET | `/v1/events/{event_id}` | Return frozen pricing and processing state |
+| POST | `/v1/events/{event_id}/retry` | Reactivate a failed generation without repricing |
 | GET | `/v1/customers/{customer_id}/summary` | Exact processed totals and queue counts |
 | GET | `/healthz` | Process liveness, public |
 | GET | `/readyz` | Bounded database reachability check, public |
@@ -93,6 +95,7 @@ See [OpenAPI](api/openapi.yaml) for request and response schemas and
 [Operations](docs/OPERATIONS.md) for metric semantics and example alerts.
 See [Failure and recovery verification](docs/RESILIENCE.md) for the CI database-crash scenario and its limits.
 See [backup/restore verification](docs/BACKUP_RESTORE.md) for full-row comparisons and processing after restore.
+See [event recovery](docs/EVENT_RECOVERY.md) for quarantine, retry preconditions, and migration limits.
 An optional [local Prometheus/Grafana demo](docs/MONITORING.md) includes a provisioned dashboard and tested alerts.
 
 ## Configuration
@@ -102,7 +105,7 @@ An optional [local Prometheus/Grafana demo](docs/MONITORING.md) includes a provi
 | `DATABASE_URL` | required | New demo database connection, never logged |
 | `BILLING_API_TOKEN` | required | 32–4096 printable ASCII bytes, no whitespace; generate randomly |
 | `BILLING_RATE_MICROS` | `1000` | Positive integer micro-USD per API call |
-| `BILLING_MAX_PENDING_EVENTS` | `10000` | Maximum pending queue depth, 1–1000000; shared across API instances |
+| `BILLING_MAX_PENDING_EVENTS` | `10000` | Maximum unfinished events (pending + failed), 1–1000000; shared across API instances |
 | `HTTP_ADDR` | `127.0.0.1:8080` | Listener; Compose binds inside its container |
 | `WORKER_INTERVAL` | `100ms` | Polling delay, 10ms–1m |
 | `WORKER_BATCH` | `100` | Batch size, 1–1000 |

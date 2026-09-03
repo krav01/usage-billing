@@ -80,6 +80,22 @@ func (s *Service) Summary(ctx context.Context, customer string) (Summary, error)
 	return summary, nil
 }
 
+// Retry reactivates one failed generation without changing its frozen input or price.
+// The boolean reports a new reactivation; replays of an applied request are no-ops.
+func (s *Service) Retry(ctx context.Context, id string, generation int64) (Event, bool, error) {
+	if err := ValidateID(id); err != nil {
+		return Event{}, false, err
+	}
+	if generation < 0 || generation == math.MaxInt64 {
+		return Event{}, false, ErrInvalid
+	}
+	event, retried, err := s.repo.Retry(ctx, id, generation)
+	if err != nil {
+		return Event{}, false, fmt.Errorf("retry usage: %w", err)
+	}
+	return event, retried, nil
+}
+
 // ValidateID accepts one to 64 ASCII letters, digits, underscores, or hyphens.
 func ValidateID(id string) error {
 	if len(id) == 0 || len(id) > 64 {

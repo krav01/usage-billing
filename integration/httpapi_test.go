@@ -28,6 +28,49 @@ import (
 // Synthetic credential used exclusively by the in-process test HTTP servers.
 const testToken = "synthetic-integration-token-never-for-real-use"
 
+func TestHTTPFailedEventRecovery(t *testing.T) {
+	t.Parallel()
+	pool := isolatedDatabase(t)
+	server := newServer(t, pool, 1000)
+	body := []byte(`{"event_id":"event-one","customer_id":"customer-one","meter":"api_calls","units":3}`)
+	request(t, server, http.MethodPost, "/v1/events", body, http.StatusAccepted)
+	request(t, server, http.MethodPost, "/v1/events/event-one/retry", []byte(`{"retry_generation":0}`), http.StatusConflict)
+	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries ADD CONSTRAINT fail_post CHECK (event_id <> 'event-one')`); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if n, err := postgres.New(pool).ProcessBatch(t.Context(), 1); err != nil || n != 0 {
+			t.Fatalf("isolate event: %d %v", n, err)
+		}
+	}
+	var event billing.Event
+	decode(t, request(t, server, http.MethodGet, "/v1/events/event-one", nil, http.StatusOK), &event)
+	if !event.Failed || event.ProcessingFailures != 3 || event.FailureCode != "23514" {
+		t.Fatalf("failure not visible: %+v", event)
+	}
+	if got := summary(t, server); got.Failed != 1 || got.Pending != 0 || got.AmountMicros != "0" {
+		t.Fatalf("failed event billed: %+v", got)
+	}
+	// Restart the HTTP service with a new rate before manually retrying.
+	server.Close()
+	server = newServer(t, pool, 9000)
+	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries DROP CONSTRAINT fail_post`); err != nil {
+		t.Fatal(err)
+	}
+	decode(t, request(t, server, http.MethodPost, "/v1/events/event-one/retry", []byte(`{"retry_generation":0}`), http.StatusAccepted), &event)
+	if event.Failed || event.RetryGeneration != 1 || event.UnitPriceMicros != 1000 || event.AmountMicros != 3000 {
+		t.Fatalf("retry changed frozen pricing: %+v", event)
+	}
+	request(t, server, http.MethodPost, "/v1/events/event-one/retry", []byte(`{"retry_generation":0}`), http.StatusOK)
+	if n, err := postgres.New(pool).ProcessBatch(t.Context(), 1); err != nil || n != 1 {
+		t.Fatalf("recover: %d %v", n, err)
+	}
+	request(t, server, http.MethodPost, "/v1/events/event-one/retry", []byte(`{"retry_generation":0}`), http.StatusOK)
+	if got := summary(t, server); got.Processed != 1 || got.Failed != 0 || got.Pending != 0 || got.AmountMicros != "3000" {
+		t.Fatalf("retry duplicated charge: %+v", got)
+	}
+}
+
 func TestHTTPBillingLifecycle(t *testing.T) {
 	t.Parallel()
 	pool := isolatedDatabase(t)
@@ -258,7 +301,7 @@ func summary(t *testing.T, server *httptest.Server) billing.Summary {
 }
 
 // Every test owns one random schema; no shared records are truncated or deleted.
-// Applying the checked-in initial migration here is fixture setup, not an
+// Applying the checked-in migrations here is fixture setup, not an
 // application migration engine. CI separately exercises the official CLI.
 func isolatedDatabase(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -299,12 +342,14 @@ func isolatedDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal("cannot create test pool")
 	}
 	t.Cleanup(pool.Close)
-	migration, err := os.ReadFile("../migrations/000001_init.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatalf("cannot initialize isolated schema: %v", err)
+	for _, path := range []string{"../migrations/000001_init.up.sql", "../migrations/000002_event_recovery.up.sql"} {
+		migration, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("cannot initialize isolated schema: %v", err)
+		}
 	}
 	return pool
 }

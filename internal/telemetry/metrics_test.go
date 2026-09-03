@@ -12,7 +12,7 @@ import (
 
 func TestNew(t *testing.T) {
 	t.Parallel()
-	queue := func(context.Context) (int64, float64, error) { return 0, 0, nil }
+	queue := func(context.Context) (int64, int64, float64, error) { return 0, 0, 0, nil }
 	work := func() worker.Stats { return worker.Stats{} }
 	if _, err := telemetry.New(nil, work); err == nil {
 		t.Fatal("nil queue callback accepted")
@@ -25,7 +25,7 @@ func TestNew(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	t.Parallel()
 	collector, err := telemetry.New(
-		func(context.Context) (int64, float64, error) { return 7, 2.5, nil },
+		func(context.Context) (int64, int64, float64, error) { return 7, 3, 2.5, nil },
 		func() worker.Stats {
 			return worker.Stats{
 				Running: true, BatchInFlight: true, BatchAttempts: 9,
@@ -40,6 +40,7 @@ func TestMetrics(t *testing.T) {
 	for _, metric := range []string{
 		"usage_billing_queue_scrape_success 1\n",
 		"usage_billing_queue_pending_events 7\n",
+		"usage_billing_queue_failed_events 3\n",
 		"usage_billing_queue_oldest_event_age_seconds 2.5\n",
 		"usage_billing_queue_scrape_errors_total 0\n",
 		"usage_billing_worker_running 1\n",
@@ -58,7 +59,9 @@ func TestMetrics(t *testing.T) {
 func TestMetricsReportsQueueFailureWithoutFalseGauges(t *testing.T) {
 	t.Parallel()
 	collector, err := telemetry.New(
-		func(context.Context) (int64, float64, error) { return 0, 0, errors.New("private database error") },
+		func(context.Context) (int64, int64, float64, error) {
+			return 0, 0, 0, errors.New("private database error")
+		},
 		func() worker.Stats { return worker.Stats{} },
 	)
 	if err != nil {
@@ -71,6 +74,7 @@ func TestMetricsReportsQueueFailureWithoutFalseGauges(t *testing.T) {
 	}
 	for _, unavailable := range []string{
 		"usage_billing_queue_pending_events ",
+		"usage_billing_queue_failed_events ",
 		"usage_billing_queue_oldest_event_age_seconds ",
 	} {
 		if strings.Contains(body, unavailable) {
