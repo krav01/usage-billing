@@ -202,6 +202,7 @@ jobs:
         run: bash scripts/test-postgres-outage.sh
       - name: Validate and test monitoring alert rules
         run: |
+          make monitoring-secrets
           docker compose -f compose.yaml -f compose.monitoring.yaml run --rm --no-deps \
             --entrypoint /bin/promtool prometheus check rules /etc/prometheus/alerts.yml
           make monitoring-test
@@ -223,4 +224,4 @@ jobs:
           docker compose -f compose.yaml -f compose.monitoring.yaml logs --no-color --tail=100 api migrate prometheus grafana
       - name: Stop disposable stack
         if: always()
-        run: docker compose -f compose.yaml -f compose.monitoring.yaml down --volumes
+        run: docker compose -f compose.yaml -f compose.monitoring.yaml down --volumes --remove-orphans

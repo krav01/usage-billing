@@ -51,9 +51,9 @@ services:
 
 secrets:
   billing_metrics_token:
-    environment: BILLING_API_TOKEN
+    file: ./.local/monitoring-secrets/billing-token
   grafana_admin_password:
-    environment: GRAFANA_ADMIN_PASSWORD
+    file: ./.local/monitoring-secrets/grafana-password
 
 volumes:
   prometheus-data:

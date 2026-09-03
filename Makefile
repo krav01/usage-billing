@@ -1,4 +1,4 @@
-.PHONY: test vet lint vuln build integration bench bench-postgres loadtest up down migrate monitoring-up monitoring-down monitoring-test
+.PHONY: test vet lint vuln build integration bench bench-postgres loadtest up down migrate monitoring-up monitoring-down monitoring-test monitoring-secrets
 
 test:
 	go test -race -shuffle=on -count=1 ./...
@@ -38,12 +38,14 @@ down:
 migrate:
 	docker compose run --rm migrate up
 
-monitoring-up:
-	@test "$${#GRAFANA_ADMIN_PASSWORD}" -ge 32 || (echo 'Set GRAFANA_ADMIN_PASSWORD to a random value of at least 32 characters' >&2; exit 1)
+monitoring-secrets:
+	bash scripts/prepare-monitoring-secrets.sh
+
+monitoring-up: monitoring-secrets
 	docker compose -f compose.yaml -f compose.monitoring.yaml up -d --build
 
 monitoring-down:
 	docker compose -f compose.yaml -f compose.monitoring.yaml down
 
-monitoring-test:
+monitoring-test: monitoring-secrets
 	docker compose -f compose.yaml -f compose.monitoring.yaml run --rm --no-deps --entrypoint /bin/promtool prometheus test rules /etc/prometheus/alerts.test.yml

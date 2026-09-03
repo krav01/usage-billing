@@ -6,7 +6,7 @@ recipients. Both new ports bind only to loopback.
 
 ## Start
 
-Use a local Docker Compose v2 installation that supports environment-backed secrets.
+Use a local Docker Compose v2 installation.
 Keep the same `POSTGRES_PASSWORD` and `BILLING_API_TOKEN` used to start the billing
 demo. On a fresh demo only, generate all three values:
 
@@ -28,10 +28,15 @@ available at <http://127.0.0.1:9090>. It has no UI authentication in this localh
 demo, so do not expose its port, reverse-proxy it publicly, or use this setup on a
 shared/untrusted machine. Grafana disables anonymous access and public sign-up.
 
-The billing token and Grafana password are passed using environment-backed Compose
-secrets and read inside containers from `/run/secrets`. No secret values are stored
-in the tracked YAML/JSON files. This is local Compose secret injection, not an
-encrypted external secret manager; Docker administrators can still access it.
+`make monitoring-up` writes the billing token and Grafana password to the ignored
+`.local/monitoring-secrets/` directory. Its mode is `0700`; individual files are
+readable by the non-root containers and mounted read-only under `/run/secrets`.
+File-backed secrets preserve read-only container root filesystems; Compose rejects
+environment-backed secrets with that setting. No values are printed or tracked in
+Git. Keep these local files private and do not force-add them to Git. This is local
+secret injection, not an encrypted external manager; Docker administrators can
+still access it. The files remain after stopping so container restarts can mount
+them again. This helper is for disposable demo credentials, not secret rotation.
 Keep your generated credentials securely. Grafana's password setting initializes
 a new Grafana database; changing that environment value does not rotate an existing
 admin account's password.
