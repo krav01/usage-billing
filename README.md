@@ -23,8 +23,7 @@ The [design notes](docs/ARCHITECTURE.md) explain transaction boundaries and deli
 See [verification evidence](docs/VERIFICATION.md) and
 [reproducible benchmarks](docs/PERFORMANCE.md) for measured scope and limitations.
 For a guided walkthrough, see the [demo script](docs/DEMO.md) and
-[v0.2.0 release notes](docs/releases/v0.2.0.md).
-For the next version, see [v0.3.0 release preparation](docs/releases/v0.3.0.md)
+[v0.3.0 release notes](docs/releases/v0.3.0.md)
 and the [existing-demo upgrade procedure](docs/UPGRADING.md).
 
 ## Run the isolated demo

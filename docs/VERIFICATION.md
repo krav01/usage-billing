@@ -1,5 +1,31 @@
 # Pre-publication verification
 
+## v0.3.0 feature verification — 2026-09-03
+
+Feature commit `161016a4ebdc22cdfaedee0c71bccec64f621098` passed
+[Verify Usage Billing #85](https://github.com/krav01/usage-billing/actions/runs/33803606382)
+and [CodeQL](https://github.com/krav01/usage-billing/actions/runs/33803606384).
+Its [upgrade PR](https://github.com/krav01/usage-billing/pull/13) also passed
+[Dependency Review](https://github.com/krav01/usage-billing/actions/runs/33803213120).
+
+- Go race tests, vet, lint and reachable-vulnerability scanning.
+- Real PostgreSQL integration, concurrent acceptance, rollback, quarantine,
+  generation-checked retry, legacy rows and durable request correlation.
+- Migration round-trip, authenticated Docker API, load settlement, database
+  crash recovery, full-row backup/restore and monitoring checks.
+- A newly created CI database populated at schema v2 with posted, pending and
+  quarantined events. Upgrade to v3 preserved every pre-existing field;
+  repeating `up` made no further change.
+- Starting the new API at 9000 micro-USD preserved old charges at 1000.
+  Recovery retained its generation, and new request correlation survived API
+  restart/replay. Final totals were four ledger entries, seventeen units and
+  33000 micro-USD, with no pending work.
+
+These are results for the feature commit on isolated synthetic data. They do not
+claim that an existing user database was migrated, that old/new binaries ran
+concurrently, or that large-database lock times were measured. The GitHub Release
+records the separate final release commit and its verification runs.
+
 ## v0.2.0 feature verification — 2026-09-03
 
 Feature commit `deb21a1b9ff38987fbedf9956a90239605dd80e2` passed

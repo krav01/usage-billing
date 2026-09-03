@@ -36,6 +36,8 @@ jobs:
           test -z "$(gofmt -l .)"
       - name: Unit tests with race detector
         run: go test -race -shuffle=on -count=1 -coverprofile=coverage.out ./...
+      - name: Verify release publication guards without network access
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Vet
         run: go vet ./...
       - name: Lint
