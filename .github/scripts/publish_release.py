@@ -1,4 +1,4 @@
-"""One-version publisher: only the verified merge of release/v0.3.0."""
+"""One-version publisher: only the verified merge of the final release branch."""
 
 import json
 import os
@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 REPOSITORY = "krav01/usage-billing"
 TAG = "v0.3.0"
-BRANCH = "release/v0.3.0"
+BRANCH = "release/v0.3.0-publisher-fix"
 
 
 def github(method, path, data=None, optional=False):
@@ -64,9 +64,12 @@ def publish(event, notes, api=github):
         return "Skipped: main moved"
     query = urlencode({"state": "closed", "base": "main", "head": f"krav01:{BRANCH}", "per_page": 100})
     prs = api("GET", f"pulls?{query}")
-    if len(prs) != 1 or not prs[0]["merged_at"] or prs[0]["merge_commit_sha"] != sha:
+    if len(prs) != 1:
         return "Skipped: not the unique release branch merge"
-    pr = prs[0]
+    # List responses may omit merge metadata. Fetch the authoritative PR detail.
+    pr = api("GET", f"pulls/{prs[0]['number']}")
+    if not pr["merged"] or pr["merge_commit_sha"] != sha:
+        return "Skipped: not the unique release branch merge"
     if (
         pr["head"]["ref"] != BRANCH or pr["head"]["repo"]["full_name"] != REPOSITORY
         or pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != REPOSITORY
