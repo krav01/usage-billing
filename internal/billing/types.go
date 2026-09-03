@@ -24,6 +24,7 @@ type Input struct {
 
 type Event struct {
 	Input
+	RequestID          string    `json:"request_id,omitempty"`
 	UnitPriceMicros    int64     `json:"unit_price_micros"`
 	AmountMicros       int64     `json:"amount_micros"`
 	Currency           string    `json:"currency"`
@@ -33,6 +34,23 @@ type Event struct {
 	ProcessingFailures int       `json:"processing_failures"`
 	FailureCode        string    `json:"failure_code"`
 	RetryGeneration    int64     `json:"retry_generation"`
+}
+
+// ProcessingEvent contains bounded operational metadata, never customer input.
+// Outcome is authoritative only when the containing batch commits successfully.
+type ProcessingEvent struct {
+	RequestID          string
+	Outcome            string
+	FailureCode        string
+	ProcessingFailures int
+	RetryGeneration    int64
+}
+
+// BatchResult retains claimed IDs on errors so workers can log unconfirmed work.
+// Processed is nonzero only after a successful transaction commit.
+type BatchResult struct {
+	Processed int
+	Events    []ProcessingEvent
 }
 
 // Summary represents large totals as decimal strings to avoid integer overflow

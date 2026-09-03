@@ -7,10 +7,18 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/krav01/usage-billing/internal/billing"
+	"github.com/krav01/usage-billing/internal/requestid"
 )
 
 type Processor interface {
 	ProcessBatch(context.Context, int) (int, error)
+}
+
+// ResultProcessor optionally supplies per-event metadata without breaking Processor.
+type ResultProcessor interface {
+	ProcessBatchWithResults(context.Context, int) (billing.BatchResult, error)
 }
 
 type Worker struct {
@@ -61,7 +69,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			}
 			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			w.beginAttempt()
-			count, err := w.processor.ProcessBatch(attemptCtx, w.batch)
+			count, err := w.processBatch(attemptCtx)
 			attemptErr := attemptCtx.Err()
 			cancel()
 			w.finishAttempt(count, err, attemptErr)
@@ -71,7 +79,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			if err != nil {
 				// Driver errors may contain credentials or SQL parameters. Never log
 				// their text; retry uses the same transaction-safe pending queue.
-				w.logger.Warn("usage batch failed; retry scheduled")
+				w.logger.WarnContext(ctx, "usage batch failed; retry scheduled")
 				if delay >= maxDelay/2 {
 					delay = maxDelay
 				} else {
@@ -80,12 +88,42 @@ func (w *Worker) Run(ctx context.Context) error {
 			} else {
 				delay = w.interval
 				if count > 0 {
-					w.logger.Info("usage batch completed", "events", count)
+					w.logger.InfoContext(ctx, "usage batch completed", "events", count)
 				}
 			}
 			timer.Reset(delay)
 		}
 	}
+}
+
+func (w *Worker) processBatch(ctx context.Context) (int, error) {
+	processor, ok := w.processor.(ResultProcessor)
+	if !ok {
+		return w.processor.ProcessBatch(ctx, w.batch)
+	}
+	result, err := processor.ProcessBatchWithResults(ctx, w.batch)
+	for _, event := range result.Events {
+		id := requestid.ForLog(event.RequestID)
+		if id == "" {
+			// Legacy rows have no original request to correlate. Batch logs remain.
+			continue
+		}
+		if err != nil {
+			w.logger.WarnContext(ctx, "usage event outcome unconfirmed", "request_id", id)
+			continue
+		}
+		switch event.Outcome {
+		case "processed":
+			w.logger.InfoContext(ctx, "usage event processed",
+				"request_id", id, "retry_generation", event.RetryGeneration)
+		case "retry_scheduled", "quarantined":
+			w.logger.WarnContext(ctx, "usage event processing failed",
+				"request_id", id, "outcome", event.Outcome,
+				"processing_failures", event.ProcessingFailures,
+				"retry_generation", event.RetryGeneration)
+		}
+	}
+	return result.Processed, err
 }
 
 // Snapshot returns a race-safe copy for metrics collection.

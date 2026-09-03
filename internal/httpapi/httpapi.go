@@ -4,10 +4,8 @@ package httpapi
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/krav01/usage-billing/internal/billing"
+	"github.com/krav01/usage-billing/internal/requestid"
 )
 
 const (
@@ -116,9 +115,9 @@ func route(path string) (int, string) {
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	requestID := normalizeRequestID()
+	requestID := requestid.New()
 	w.Header().Set(requestIDHeader, requestID)
-	ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), requestIDKey{}, requestID), 5*time.Second)
+	ctx, cancel := context.WithTimeout(requestid.WithContext(r.Context(), requestID), 5*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
 	index, id := route(r.URL.Path)
@@ -141,19 +140,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-type requestIDKey struct{}
-
+// RequestID returns the server-generated ID associated with this HTTP request.
 func RequestID(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey{}).(string)
-	return id
-}
-
-func normalizeRequestID() string {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(raw[:])
+	return requestid.FromContext(ctx)
 }
 
 func (h *handler) serve(w http.ResponseWriter, r *http.Request, index int, id string) int {

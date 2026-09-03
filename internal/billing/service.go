@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/krav01/usage-billing/internal/requestid"
 )
 
 // Service validates usage and freezes the configured price at acceptance.
@@ -48,7 +50,12 @@ func (s *Service) Accept(ctx context.Context, input Input) (Event, bool, error) 
 		}
 		return existing, false, nil
 	}
+	id := requestid.FromContext(ctx)
+	if id == "" {
+		id = requestid.New()
+	}
 	event, created, err := s.repo.Accept(ctx, Event{
+		RequestID: id,
 		Input: input, UnitPriceMicros: s.rate,
 		AmountMicros: input.Units * s.rate, Currency: "USD",
 	})

@@ -43,11 +43,11 @@ func (s *Store) Accept(ctx context.Context, event billing.Event) (billing.Event,
 	err := s.transaction(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO usage_events
-			    (event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			    (event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency, request_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (event_id) DO NOTHING`,
 			event.EventID, event.CustomerID, event.Meter, event.Units,
-			event.UnitPriceMicros, event.AmountMicros, event.Currency)
+			event.UnitPriceMicros, event.AmountMicros, event.Currency, event.RequestID)
 		if err != nil {
 			return fmt.Errorf("insert usage event: %w", err)
 		}
@@ -102,14 +102,15 @@ func readEvent(ctx context.Context, query rowQuerier, id string) (billing.Event,
 	var event billing.Event
 	err := query.QueryRow(ctx, `
 		SELECT u.event_id, u.customer_id, u.meter, u.units,
-		       u.unit_price_micros, u.amount_micros, u.currency, u.created_at,
+		       u.unit_price_micros, u.amount_micros, u.currency, u.created_at, u.request_id,
 		       EXISTS (SELECT 1 FROM ledger_entries l WHERE l.event_id = u.event_id),
 		       COALESCE(p.processing_failures, 0), COALESCE(p.failure_code, ''), COALESCE(p.retry_generation, 0)
 		FROM usage_events u LEFT JOIN pending_events p ON p.event_id = u.event_id
 		WHERE u.event_id = $1`, id).Scan(
 		&event.EventID, &event.CustomerID, &event.Meter, &event.Units,
 		&event.UnitPriceMicros, &event.AmountMicros, &event.Currency,
-		&event.CreatedAt, &event.Processed, &event.ProcessingFailures, &event.FailureCode, &event.RetryGeneration)
+		&event.CreatedAt, &event.RequestID, &event.Processed,
+		&event.ProcessingFailures, &event.FailureCode, &event.RetryGeneration)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return billing.Event{}, billing.ErrNotFound
 	}
@@ -165,20 +166,41 @@ func (s *Store) QueueStats(ctx context.Context) (int64, int64, float64, error) {
 // Confirmed integrity failures are isolated; three failures quarantine a row.
 // The returned count excludes failed work and is nonzero only after commit.
 func (s *Store) ProcessBatch(ctx context.Context, limit int) (int, error) {
+	result, err := s.ProcessBatchWithResults(ctx, limit)
+	return result.Processed, err
+}
+
+// ProcessBatchWithResults also reports correlation metadata for each claimed row.
+// On an error, only RequestID identifies attempted work; no outcome is confirmed.
+func (s *Store) ProcessBatchWithResults(ctx context.Context, limit int) (billing.BatchResult, error) {
 	if limit < 1 || limit > 1000 {
-		return 0, fmt.Errorf("batch limit must be between 1 and 1000")
+		return billing.BatchResult{}, fmt.Errorf("batch limit must be between 1 and 1000")
 	}
+	result := billing.BatchResult{}
 	processed := 0
 	err := s.transaction(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT event_id FROM pending_events WHERE processing_failures < 3
-			ORDER BY enqueued_at, event_id
-			LIMIT $1 FOR UPDATE SKIP LOCKED`, limit)
+			SELECT p.event_id, u.request_id, p.processing_failures, p.retry_generation
+			FROM pending_events p JOIN usage_events u ON u.event_id = p.event_id
+			WHERE p.processing_failures < 3
+			ORDER BY p.enqueued_at, p.event_id
+			LIMIT $1 FOR UPDATE OF p SKIP LOCKED`, limit)
 		if err != nil {
 			return fmt.Errorf("claim pending events: %w", err)
 		}
-		ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
+		defer rows.Close()
+		ids := make([]string, 0, limit)
+		for rows.Next() {
+			var id string
+			var item billing.ProcessingEvent
+			if err := rows.Scan(&id, &item.RequestID, &item.ProcessingFailures, &item.RetryGeneration); err != nil {
+				return fmt.Errorf("read claimed event: %w", err)
+			}
+			ids = append(ids, id)
+			result.Events = append(result.Events, item)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
 			return fmt.Errorf("read claimed events: %w", err)
 		}
 		if len(ids) == 0 {
@@ -198,7 +220,7 @@ func (s *Store) ProcessBatch(ctx context.Context, limit int) (int, error) {
 			}
 			// Keep the claimed row locks. Only confirmed per-event integrity errors
 			// consume a failure attempt; the failed bulk probe does not.
-			processed, err = processIndividually(ctx, tx, ids)
+			processed, err = processIndividually(ctx, tx, ids, result.Events)
 			return err
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM pending_events WHERE event_id = ANY($1::text[])`, ids)
@@ -206,12 +228,21 @@ func (s *Store) ProcessBatch(ctx context.Context, limit int) (int, error) {
 			return fmt.Errorf("remove completed pending events: %w", err)
 		}
 		processed = int(tag.RowsAffected())
+		for i := range result.Events {
+			result.Events[i].Outcome = "processed"
+		}
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("process usage batch: %w", err)
+		// A commit error may be ambiguous. Do not report tentative outcomes,
+		// failure counters, or rollback as durable facts.
+		for i := range result.Events {
+			result.Events[i] = billing.ProcessingEvent{RequestID: result.Events[i].RequestID}
+		}
+		return result, fmt.Errorf("process usage batch: %w", err)
 	}
-	return processed, nil
+	result.Processed = processed
+	return result, nil
 }
 
 // Retry holds the same row lock as workers. Failed work still occupies a queue
@@ -270,9 +301,9 @@ func integrityCode(err error) string {
 	}
 }
 
-func processIndividually(ctx context.Context, tx pgx.Tx, ids []string) (int, error) {
+func processIndividually(ctx context.Context, tx pgx.Tx, ids []string, results []billing.ProcessingEvent) (int, error) {
 	processed := 0
-	for _, id := range ids {
+	for i, id := range ids {
 		if _, err := tx.Exec(ctx, `SAVEPOINT ledger_event`); err != nil {
 			return 0, fmt.Errorf("save ledger event: %w", err)
 		}
@@ -290,11 +321,18 @@ func processIndividually(ctx context.Context, tx pgx.Tx, ids []string) (int, err
 				failure_code = $2 WHERE event_id = $1`, id, code); err != nil {
 				return 0, fmt.Errorf("record event failure: %w", err)
 			}
+			results[i].ProcessingFailures++
+			results[i].FailureCode = code
+			results[i].Outcome = "retry_scheduled"
+			if results[i].ProcessingFailures == 3 {
+				results[i].Outcome = "quarantined"
+			}
 		} else {
 			if _, err := tx.Exec(ctx, `DELETE FROM pending_events WHERE event_id = $1`, id); err != nil {
 				return 0, fmt.Errorf("remove isolated completed event: %w", err)
 			}
 			processed++
+			results[i].Outcome = "processed"
 		}
 		if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT ledger_event`); err != nil {
 			return 0, fmt.Errorf("release ledger event: %w", err)

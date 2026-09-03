@@ -4,6 +4,59 @@
 Prometheus text. Metric names and labels are bounded: event and customer IDs
 never appear in metric labels or values.
 
+## Durable request correlation
+
+Every HTTP response has a server-generated, 32-character hexadecimal
+`X-Request-ID`. Incoming request ID headers are ignored. On first acceptance,
+the billing service saves that ID in `usage_events.request_id` in the same
+transaction as the event and pending work. Event responses expose the original
+ID as the optional `request_id` field; it is not accepted in producer input.
+
+| Operation | HTTP response header | Event response and worker logs |
+| --- | --- | --- |
+| First acceptance | New request ID | Same ID, stored durably |
+| Idempotent replay | New request ID | Original acceptance ID |
+| Event read or manual retry | New request ID | Original acceptance ID |
+| Worker restart or automatic retry | No HTTP request | Original acceptance ID |
+| Legacy event or older producer | Current HTTP request ID, if applicable | No historical ID invented |
+
+Worker batches contain independent event IDs, not one shared request context.
+The store returns bounded per-event metadata through `ProcessBatchWithResults`;
+the original `ProcessBatch` interface remains available. Worker event logs are
+emitted after the transaction returns:
+
+- `usage event processed`: the batch commit succeeded.
+- `usage event processing failed`: a committed integrity failure, with
+  `outcome` equal to `retry_scheduled` or `quarantined`, plus the failure count
+  and retry generation. These are not infrastructure failures.
+- `usage event outcome unconfirmed`: processing returned an error after the
+  row was claimed. Commit errors can be ambiguous; this does not assert rollback
+  or successful posting. The next attempt reconciles through existing unique
+  ledger keys. Failures before claim have only a batch-level log.
+
+Only validated, re-encoded correlation IDs and bounded operational fields are
+logged. Raw event/customer identifiers, SQL errors, credentials and request
+bodies are excluded. IDs are never metric labels. Logging adds one line per
+correlated event outcome; account for that volume when running load tests.
+Logs are diagnostic, not a transactional audit outbox: a process crash between
+commit and logging can lose a log line. PostgreSQL remains the source of truth.
+
+Migration `000003` is additive and leaves historical IDs empty. Apply it before
+deploying the new binary. Its down migration refuses to erase nonempty IDs.
+To roll back the binary, keep the added column; old code ignores it and new
+events from that old binary have no durable correlation ID.
+
+With the demo stack running and `BILLING_API_TOKEN` set, find an event's original
+ID and filter its logs (replace the synthetic event ID as needed):
+
+```bash
+request_id=$(curl --fail --silent --show-error --max-time 5 \
+  -H "Authorization: Bearer $BILLING_API_TOKEN" \
+  http://127.0.0.1:8080/v1/events/demo-event | jq -er '.request_id')
+docker compose logs --no-color --no-log-prefix api \
+  | jq -R --arg id "$request_id" 'fromjson? | select(.request_id == $id)'
+```
+
 ## Queue metrics
 
 Each authenticated scrape runs one context-bound PostgreSQL aggregate over the
