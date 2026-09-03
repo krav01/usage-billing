@@ -1,0 +1,47 @@
+groups:
+  - name: usage-billing
+    rules:
+      - record: usage_billing:worker_error_ratio:5m
+        expr: |
+          sum by (job) (rate(usage_billing_worker_batch_errors_total{job="usage-billing"}[5m]))
+          /
+          clamp_min(sum by (job) (rate(usage_billing_worker_batch_attempts_total{job="usage-billing"}[5m])), 1e-9)
+      - alert: BillingTargetDown
+        expr: up{job="usage-billing"} == 0 or absent(up{job="usage-billing"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Billing metrics target is unavailable
+      - alert: BillingQueueMetricsUnavailable
+        expr: usage_billing_queue_scrape_success{job="usage-billing"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing queue state cannot be read
+      - alert: BillingQueueStalled
+        expr: |
+          usage_billing_queue_oldest_event_age_seconds{job="usage-billing"} > 60
+          and on (job, instance) usage_billing_queue_scrape_success{job="usage-billing"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing queue contains old pending work
+      - alert: BillingWorkerErrors
+        expr: usage_billing:worker_error_ratio:5m > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing worker has sustained batch errors
+      - alert: BillingWorkerStopped
+        expr: |
+          usage_billing_worker_running{job="usage-billing"} == 0
+          and on (job, instance) up{job="usage-billing"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Billing worker is stopped while the API is reachable

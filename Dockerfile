@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/usage-billing ./cmd/usage-billing
+RUN test ! -e /src/.local && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/usage-billing ./cmd/usage-billing
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

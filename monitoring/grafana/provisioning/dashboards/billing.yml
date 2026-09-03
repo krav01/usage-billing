@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: Usage Billing
+    folder: Usage Billing
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

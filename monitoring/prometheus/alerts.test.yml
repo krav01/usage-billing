@@ -1,0 +1,147 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: healthy idle service does not alert
+    interval: 1m
+    input_series:
+      - series: 'up{job="usage-billing",instance="api:8080"}'
+        values: '1x10'
+      - series: 'usage_billing_queue_scrape_success{job="usage-billing",instance="api:8080"}'
+        values: '1x10'
+      - series: 'usage_billing_queue_oldest_event_age_seconds{job="usage-billing",instance="api:8080"}'
+        values: '0x10'
+      - series: 'usage_billing_worker_running{job="usage-billing",instance="api:8080"}'
+        values: '1x10'
+      - series: 'usage_billing_worker_batch_attempts_total{job="usage-billing",instance="api:8080"}'
+        values: '0x10'
+      - series: 'usage_billing_worker_batch_errors_total{job="usage-billing",instance="api:8080"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BillingTargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BillingQueueMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BillingQueueStalled
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BillingWorkerErrors
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BillingWorkerStopped
+        exp_alerts: []
+    promql_expr_test:
+      - expr: usage_billing:worker_error_ratio:5m
+        eval_time: 5m
+        exp_samples:
+          - labels: 'usage_billing:worker_error_ratio:5m{job="usage-billing"}'
+            value: 0
+
+  - name: target failure is delayed and resolves after recovery
+    interval: 1m
+    input_series:
+      - series: 'up{job="usage-billing",instance="api:8080"}'
+        values: '0 0 1 1'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: BillingTargetDown
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: BillingTargetDown
+        exp_alerts:
+          - exp_labels: {job: usage-billing, instance: 'api:8080', severity: critical}
+            exp_annotations: {summary: Billing metrics target is unavailable}
+      - eval_time: 2m
+        alertname: BillingTargetDown
+        exp_alerts: []
+
+  - name: missing target is not treated as healthy
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BillingTargetDown
+        exp_alerts:
+          - exp_labels: {job: usage-billing, severity: critical}
+            exp_annotations: {summary: Billing metrics target is unavailable}
+
+  - name: unreadable queue alerts without a false backlog alert
+    interval: 1m
+    input_series:
+      - series: 'usage_billing_queue_scrape_success{job="usage-billing",instance="api:8080"}'
+        values: '0 0 1 1'
+      - series: 'usage_billing_queue_oldest_event_age_seconds{job="usage-billing",instance="api:8080"}'
+        values: '120 120 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BillingQueueMetricsUnavailable
+        exp_alerts:
+          - exp_labels: {job: usage-billing, instance: 'api:8080', severity: warning}
+            exp_annotations: {summary: Billing queue state cannot be read}
+      - eval_time: 1m
+        alertname: BillingQueueStalled
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: BillingQueueMetricsUnavailable
+        exp_alerts: []
+
+  - name: stalled queue and stopped worker alert after sustained failure
+    interval: 1m
+    input_series:
+      - series: 'up{job="usage-billing",instance="api:8080"}'
+        values: '1x5'
+      - series: 'usage_billing_queue_scrape_success{job="usage-billing",instance="api:8080"}'
+        values: '1x5'
+      - series: 'usage_billing_queue_oldest_event_age_seconds{job="usage-billing",instance="api:8080"}'
+        values: '120x5'
+      - series: 'usage_billing_worker_running{job="usage-billing",instance="api:8080"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BillingQueueStalled
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: BillingQueueStalled
+        exp_alerts:
+          - exp_labels: {job: usage-billing, instance: 'api:8080', severity: warning}
+            exp_annotations: {summary: Billing queue contains old pending work}
+      - eval_time: 1m
+        alertname: BillingWorkerStopped
+        exp_alerts:
+          - exp_labels: {job: usage-billing, instance: 'api:8080', severity: critical}
+            exp_annotations: {summary: Billing worker is stopped while the API is reachable}
+
+  - name: low throughput errors are not divided by an artificial one request per second
+    interval: 1m
+    input_series:
+      - series: 'usage_billing_worker_batch_attempts_total{job="usage-billing",instance="api:8080"}'
+        values: '0+1x10'
+      - series: 'usage_billing_worker_batch_errors_total{job="usage-billing",instance="api:8080"}'
+        values: '0+1x10'
+    promql_expr_test:
+      - expr: usage_billing:worker_error_ratio:5m
+        eval_time: 5m
+        exp_samples:
+          - labels: 'usage_billing:worker_error_ratio:5m{job="usage-billing"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BillingWorkerErrors
+        exp_alerts:
+          - exp_labels: {job: usage-billing, severity: warning}
+            exp_annotations: {summary: Billing worker has sustained batch errors}
+
+  - name: counter resets preserve the error ratio
+    interval: 1m
+    input_series:
+      - series: 'usage_billing_worker_batch_attempts_total{job="usage-billing",instance="api:8080"}'
+        values: '5 6 0 1 2 3'
+      - series: 'usage_billing_worker_batch_errors_total{job="usage-billing",instance="api:8080"}'
+        values: '5 6 0 1 2 3'
+    promql_expr_test:
+      - expr: usage_billing:worker_error_ratio:5m
+        eval_time: 5m
+        exp_samples:
+          - labels: 'usage_billing:worker_error_ratio:5m{job="usage-billing"}'
+            value: 1
