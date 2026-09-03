@@ -25,9 +25,8 @@ import (
 )
 
 const (
-	maxBodyBytes = 16 * 1024
+	maxBodyBytes    = 16 * 1024
 	requestIDHeader = "X-Request-ID"
-	maxRequestIDBytes = 64
 )
 
 type Service interface {
@@ -117,7 +116,7 @@ func route(path string) (int, string) {
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	requestID := normalizeRequestID(r.Header.Get(requestIDHeader))
+	requestID := normalizeRequestID()
 	w.Header().Set(requestIDHeader, requestID)
 	ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), requestIDKey{}, requestID), 5*time.Second)
 	defer cancel()
@@ -149,30 +148,12 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
-func normalizeRequestID(candidate string) string {
-	if validRequestID(candidate) {
-		return candidate
-	}
+func normalizeRequestID() string {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(raw[:])
-}
-
-func validRequestID(id string) bool {
-	if len(id) == 0 || len(id) > maxRequestIDBytes {
-		return false
-	}
-	for i := range len(id) {
-		b := id[i]
-		letter := b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
-		digit := b >= '0' && b <= '9'
-		if !letter && !digit && b != '-' && b != '_' {
-			return false
-		}
-	}
-	return true
 }
 
 func (h *handler) serve(w http.ResponseWriter, r *http.Request, index int, id string) int {
