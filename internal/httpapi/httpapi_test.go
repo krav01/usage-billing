@@ -524,7 +524,9 @@ func requestIDFormat(id string) bool {
 		return false
 	}
 	for i := range len(id) {
-		if !((id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f')) {
+		isDigit := id[i] >= '0' && id[i] <= '9'
+		isHexLetter := id[i] >= 'a' && id[i] <= 'f'
+		if !isDigit && !isHexLetter {
 			return false
 		}
 	}
