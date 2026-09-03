@@ -221,7 +221,7 @@ jobs:
         if: failure()
         run: |
           docker compose -f compose.yaml -f compose.monitoring.yaml ps -a
-          docker compose -f compose.yaml -f compose.monitoring.yaml logs --no-color --tail=100 api migrate prometheus grafana
+          docker compose -f compose.yaml -f compose.monitoring.yaml logs --no-color --tail=100 api migrate postgres prometheus grafana
       - name: Stop disposable stack
         if: always()
         run: docker compose -f compose.yaml -f compose.monitoring.yaml down --volumes --remove-orphans

@@ -80,6 +80,8 @@ settled() {
 wait_for 'initial readiness' ready
 api_id=$(dc ps -q api)
 test -n "$api_id"
+postgres_id=$(dc ps -q postgres)
+test -n "$postgres_id"
 api_state=$(docker inspect --format '{{.State.StartedAt}}/{{.RestartCount}}' "$api_id")
 
 # SHARE allows reads but blocks the worker's INSERT (ROW EXCLUSIVE). Observe
@@ -103,6 +105,9 @@ wait_for 'worker blocked inside ledger insertion' worker_is_blocked
 echo 'PASS: accepted event is durable; worker observed inside an unfinished transaction'
 
 dc kill --signal SIGKILL postgres
+# Wait for the engine's terminal state before attempting recovery. Compose's
+# service discovery can race with SIGKILL completion and start no containers.
+test "$(timeout 15s docker wait "$postgres_id")" = 137
 # PostgreSQL termination deliberately breaks the lock-holder connection.
 if wait "$locker_pid"; then
   echo 'Lock-holder unexpectedly completed before the injected crash' >&2
@@ -126,7 +131,7 @@ status=$(request -o "$test_dir/unavailable.json" -w '%{http_code}' \
 jq -e '.error == "internal_error"' "$test_dir/unavailable.json" >/dev/null
 echo 'PASS: database outage keeps liveness available, fails readiness/writes, and marks queue metrics unavailable'
 
-dc start postgres
+docker start "$postgres_id" >/dev/null
 wait_for 'database recovery without API restart' ready
 # A failed write must not have been acknowledged or persisted during the outage.
 status=$(request -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/v1/events/ci-outage-retry)
