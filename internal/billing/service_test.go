@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/krav01/usage-billing/internal/billing"
+	"github.com/krav01/usage-billing/internal/requestid"
 )
 
 type memoryRepository struct {
@@ -82,6 +83,35 @@ func TestNew(t *testing.T) {
 	}
 	if _, err := billing.New(nil, 1); err == nil {
 		t.Fatal("nil repository accepted")
+	}
+}
+
+func TestAcceptPreservesOriginalRequestID(t *testing.T) {
+	t.Parallel()
+	repo := newRepository()
+	svc := newService(t, repo, 1000)
+	input := billing.Input{EventID: "correlation", CustomerID: "synthetic", Meter: "api_calls", Units: 3}
+	id := requestid.New()
+	first, created, err := svc.Accept(requestid.WithContext(t.Context(), id), input)
+	if err != nil || !created || first.RequestID != id {
+		t.Fatalf("accept correlation: %+v %t %v", first, created, err)
+	}
+	for _, rate := range []int64{9000, math.MaxInt64} {
+		svc = newService(t, repo, rate)
+		replay, created, err := svc.Accept(requestid.WithContext(t.Context(), requestid.New()), input)
+		if err != nil || created || replay.RequestID != id || replay.AmountMicros != 3000 {
+			t.Fatalf("replay changed correlation or price: %+v %t %v", replay, created, err)
+		}
+	}
+}
+
+func TestAcceptGeneratesRequestIDWithoutHTTP(t *testing.T) {
+	t.Parallel()
+	svc := newService(t, newRepository(), 1000)
+	input := billing.Input{EventID: "direct", CustomerID: "synthetic", Meter: "api_calls", Units: 1}
+	event, created, err := svc.Accept(t.Context(), input)
+	if err != nil || !created || len(event.RequestID) != 32 || requestid.ForLog(event.RequestID) != event.RequestID {
+		t.Fatalf("direct acceptance correlation: %+v %t %v", event, created, err)
 	}
 }
 

@@ -44,6 +44,10 @@ unit price. Reusing the ID with different units returns `409`, not another charg
 A full queue returns `503 queue_full` for new events, but permits identical replays.
 Clients should respect `Retry-After`, use bounded retries, and retain the event ID.
 
+The event response also retains its original `request_id`; each HTTP response's
+`X-Request-ID` is new. Use the original ID to find worker processing, retry and
+quarantine logs across restarts; see [durable request correlation](OPERATIONS.md#durable-request-correlation).
+
 ## 3. Observe asynchronous settlement
 
 ```bash

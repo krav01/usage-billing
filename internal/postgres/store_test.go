@@ -61,7 +61,11 @@ func fixture(t testing.TB) (*postgres.Store, *pgxpool.Pool) {
 		t.Fatal("create isolated test pool")
 	}
 	t.Cleanup(pool.Close)
-	for _, path := range []string{"../../migrations/000001_init.up.sql", "../../migrations/000002_event_recovery.up.sql"} {
+	for _, path := range []string{
+		"../../migrations/000001_init.up.sql",
+		"../../migrations/000002_event_recovery.up.sql",
+		"../../migrations/000003_request_id.up.sql",
+	} {
 		migration, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -98,30 +102,42 @@ func TestAcceptConcurrentReplayFrozenPriceAndConflict(t *testing.T) {
 	store, _ := fixture(t)
 	input := event("same-event", "synthetic-customer", 3, 1000)
 	var created atomic.Int64
+	var winningID atomic.Value
+	requestIDs := make(chan string, 20)
 	var wg sync.WaitGroup
-	for range 20 {
+	for i := range 20 {
 		wg.Go(func() {
-			got, fresh, err := store.Accept(t.Context(), input)
+			candidate := input
+			candidate.RequestID = fmt.Sprintf("%032x", i+1)
+			got, fresh, err := store.Accept(t.Context(), candidate)
 			if err != nil {
 				t.Errorf("accept: %v", err)
 				return
 			}
 			if fresh {
 				created.Add(1)
+				winningID.Store(candidate.RequestID)
 			}
+			requestIDs <- got.RequestID
 			if got.Input != input.Input || got.AmountMicros != 3000 || got.CreatedAt.IsZero() {
 				t.Errorf("unexpected persisted event: %+v", got)
 			}
 		})
 	}
 	wg.Wait()
+	close(requestIDs)
 	if created.Load() != 1 {
 		t.Fatalf("created %d events, want 1", created.Load())
+	}
+	for id := range requestIDs {
+		if id != winningID.Load() {
+			t.Fatalf("concurrent replay replaced original request ID: %q", id)
+		}
 	}
 	repriced := input
 	repriced.UnitPriceMicros, repriced.AmountMicros = 2000, 6000
 	got, fresh, err := store.Accept(t.Context(), repriced)
-	if err != nil || fresh || got.UnitPriceMicros != 1000 || got.AmountMicros != 3000 {
+	if err != nil || fresh || got.UnitPriceMicros != 1000 || got.AmountMicros != 3000 || got.RequestID != winningID.Load() {
 		t.Fatalf("replay changed frozen price: %+v, created=%v, err=%v", got, fresh, err)
 	}
 	conflict := event(input.EventID, "other-customer", 3, 1000)

@@ -263,7 +263,9 @@ func TestProcessBatchBookkeepingErrorRollsBackHealthyWork(t *testing.T) {
 	t.Parallel()
 	store, pool := fixture(t)
 	for _, id := range []string{"a-healthy", "b-broken"} {
-		if _, _, err := store.Accept(t.Context(), event(id, "recovery", 1, 100)); err != nil {
+		input := event(id, "recovery", 1, 100)
+		input.RequestID = "0123456789abcdef0123456789abcdef"
+		if _, _, err := store.Accept(t.Context(), input); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -271,8 +273,14 @@ func TestProcessBatchBookkeepingErrorRollsBackHealthyWork(t *testing.T) {
 		ALTER TABLE pending_events ADD CHECK (processing_failures = 0)`); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := store.ProcessBatch(t.Context(), 10); err == nil || n != 0 {
-		t.Fatalf("bookkeeping failure falsely committed work: %d %v", n, err)
+	result, err := store.ProcessBatchWithResults(t.Context(), 10)
+	if err == nil || result.Processed != 0 || len(result.Events) != 2 {
+		t.Fatalf("bookkeeping failure falsely committed work: %+v %v", result, err)
+	}
+	for _, item := range result.Events {
+		if item.RequestID != "0123456789abcdef0123456789abcdef" || item.Outcome != "" || item.ProcessingFailures != 0 {
+			t.Fatalf("unconfirmed work lost correlation or claimed a durable outcome: %+v", item)
+		}
 	}
 	assertSummary(t, store, "recovery", "0", "0", 2, 0)
 	e, err := store.Get(t.Context(), "b-broken")

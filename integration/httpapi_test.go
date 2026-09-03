@@ -342,7 +342,11 @@ func isolatedDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal("cannot create test pool")
 	}
 	t.Cleanup(pool.Close)
-	for _, path := range []string{"../migrations/000001_init.up.sql", "../migrations/000002_event_recovery.up.sql"} {
+	for _, path := range []string{
+		"../migrations/000001_init.up.sql",
+		"../migrations/000002_event_recovery.up.sql",
+		"../migrations/000003_request_id.up.sql",
+	} {
 		migration, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

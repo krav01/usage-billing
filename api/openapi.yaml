@@ -223,6 +223,11 @@ components:
       type: object
       required: [event_id, customer_id, meter, units, unit_price_micros, amount_micros, currency, processed, created_at, failed, processing_failures, failure_code, retry_generation]
       properties:
+        request_id:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+          readOnly: true
+          description: Original server-generated acceptance ID, preserved on replay and retry; omitted for legacy events
         event_id:
           $ref: '#/components/schemas/ID'
         customer_id:

@@ -3,6 +3,7 @@ package worker_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/krav01/usage-billing/internal/billing"
 	"github.com/krav01/usage-billing/internal/worker"
 )
 
@@ -19,6 +21,77 @@ type processorFunc func(context.Context, int) (int, error)
 
 func (f processorFunc) ProcessBatch(ctx context.Context, limit int) (int, error) {
 	return f(ctx, limit)
+}
+
+type reportingProcessor struct {
+	result billing.BatchResult
+	err    error
+	stop   context.CancelFunc
+}
+
+func (p reportingProcessor) ProcessBatch(context.Context, int) (int, error) {
+	p.stop()
+	return 0, errors.New("legacy method unexpectedly called")
+}
+
+func (p reportingProcessor) ProcessBatchWithResults(context.Context, int) (billing.BatchResult, error) {
+	p.stop()
+	return p.result, p.err
+}
+
+func TestRunLogsConfirmedAndUnconfirmedEventOutcomes(t *testing.T) {
+	t.Parallel()
+	const id = "0123456789abcdef0123456789abcdef"
+	for _, tc := range []struct {
+		name, outcome, requestID, message string
+		err                               error
+	}{
+		{name: "posted", outcome: "processed", requestID: id, message: "usage event processed"},
+		{name: "retry", outcome: "retry_scheduled", requestID: id, message: "usage event processing failed"},
+		{name: "quarantine", outcome: "quarantined", requestID: id, message: "usage event processing failed"},
+		{name: "unconfirmed", outcome: "processed", requestID: id, message: "usage event outcome unconfirmed",
+			err: errors.New("postgres://secret@private-host SQL customer-input")},
+		{name: "legacy", outcome: "processed"},
+		{name: "invalid metadata", outcome: "processed", requestID: "secret\nforged-log"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var logs bytes.Buffer
+			p := reportingProcessor{
+				result: billing.BatchResult{Events: []billing.ProcessingEvent{{
+					RequestID: tc.requestID, Outcome: tc.outcome, RetryGeneration: 2,
+					ProcessingFailures: 3, FailureCode: "23514",
+				}}},
+				err: tc.err, stop: cancel,
+			}
+			w := worker.New(p, time.Second, 1, slog.New(slog.NewJSONHandler(&logs, nil)))
+			if err := w.Run(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if tc.message == "" {
+				if logs.Len() != 0 {
+					t.Fatalf("unexpected metadata log: %s", logs.String())
+				}
+				return
+			}
+			var record map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record["msg"] != tc.message || record["request_id"] != id {
+				t.Fatalf("incorrect event correlation: %s", logs.String())
+			}
+			if tc.err != nil && (record["outcome"] != nil || record["processing_failures"] != nil) {
+				t.Fatal("unconfirmed metadata reported as committed")
+			}
+			for _, forbidden := range []string{"secret", "private-host", "customer-input", "forged-log"} {
+				if strings.Contains(logs.String(), forbidden) {
+					t.Fatalf("sensitive content reached logs: %q", forbidden)
+				}
+			}
+		})
+	}
 }
 
 func TestRunRetriesWithoutBusyLoopOrSecretLogs(t *testing.T) {
