@@ -488,3 +488,47 @@ func TestBusinessRequestCancellation(t *testing.T) {
 		}
 	})
 }
+
+func TestRequestIDCorrelation(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	h := newHandler(t, fakeService{}, &logs)
+	r := httptest.NewRequest(http.MethodGet, "/v1/events/event-1", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	got := w.Header().Get("X-Request-ID")
+	if w.Code != http.StatusOK || !requestIDFormat(got) {
+		t.Fatalf("status=%d request_id=%q", w.Code, got)
+	}
+	if !strings.Contains(logs.String(), `"request_id":"`+got+`"`) {
+		t.Fatalf("request ID missing from log: %s", logs.String())
+	}
+}
+
+func TestRequestIDIsServerGenerated(t *testing.T) {
+	t.Parallel()
+	h := newHandler(t, fakeService{}, io.Discard)
+	r := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	r.Header.Set("X-Request-ID", "screening-demo-42")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	got := w.Header().Get("X-Request-ID")
+	if !requestIDFormat(got) || got == "screening-demo-42" {
+		t.Fatalf("server-generated request_id=%q", got)
+	}
+}
+
+func requestIDFormat(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for i := range len(id) {
+		isDigit := id[i] >= '0' && id[i] <= '9'
+		isHexLetter := id[i] >= 'a' && id[i] <= 'f'
+		if !isDigit && !isHexLetter {
+			return false
+		}
+	}
+	return true
+}
