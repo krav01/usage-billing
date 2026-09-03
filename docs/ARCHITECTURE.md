@@ -13,6 +13,11 @@ both the event and its pending work. An identical replay returns the stored even
 a changed payload returns a conflict. Neither path overwrites the original price.
 After an ambiguous network failure, the producer retries the same ID and payload.
 
+New admissions serialize a capacity check with a transaction-level advisory lock
+scoped to this queue. A full queue rejects new input atomically with `503`; it does
+not drop existing work or prevent identical replays. See [Operations](OPERATIONS.md)
+for configuration, cross-instance assumptions, and throughput tradeoffs.
+
 Pricing uses positive int64 values and checks multiplication before accepting a
 new event. An existing event can still be replayed when a newer configured rate
 would overflow: its original input and price remain authoritative.
@@ -27,7 +32,9 @@ call occurs inside or outside this transaction.
 
 Multiple worker processes may share this queue, but the example is not a general
 purpose job platform. A permanently unprocessable event can delay a batch; production
-would need poison-message isolation, retry policy, backlog bounds, and operational alerts.
+would still need poison-message isolation and operational alerts. The demo bounds
+new admissions and applies capped exponential retry delays, but does not quarantine
+failing events or add jitter for synchronized replicas.
 
 ## Reading totals
 

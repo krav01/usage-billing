@@ -58,7 +58,10 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("database is unavailable during startup")
 	}
-	store := postgres.New(pool)
+	store, err := postgres.NewWithQueueLimit(pool, cfg.maxPendingEvents)
+	if err != nil {
+		return errors.New("billing store setup failed")
+	}
 	service, err := billing.New(store, cfg.rateMicros)
 	if err != nil {
 		return errors.New("billing service setup failed")

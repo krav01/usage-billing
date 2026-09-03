@@ -10,22 +10,24 @@ import (
 )
 
 type config struct {
-	databaseURL    string
-	token          string
-	httpAddr       string
-	rateMicros     int64
-	workerInterval time.Duration
-	workerBatch    int
+	databaseURL      string
+	token            string
+	httpAddr         string
+	rateMicros       int64
+	workerInterval   time.Duration
+	workerBatch      int
+	maxPendingEvents int64
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
 	cfg := config{
-		databaseURL:    getenv("DATABASE_URL"),
-		token:          getenv("BILLING_API_TOKEN"),
-		httpAddr:       "127.0.0.1:8080",
-		rateMicros:     1000,
-		workerInterval: 100 * time.Millisecond,
-		workerBatch:    100,
+		databaseURL:      getenv("DATABASE_URL"),
+		token:            getenv("BILLING_API_TOKEN"),
+		httpAddr:         "127.0.0.1:8080",
+		rateMicros:       1000,
+		workerInterval:   100 * time.Millisecond,
+		workerBatch:      100,
+		maxPendingEvents: 10000,
 	}
 	if strings.TrimSpace(cfg.databaseURL) == "" {
 		return config{}, errors.New("database_url is required")
@@ -64,6 +66,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return config{}, fmt.Errorf("worker_batch must be between %d and %d", 1, 1000)
 		}
 		cfg.workerBatch = n
+	}
+	if value := getenv("BILLING_MAX_PENDING_EVENTS"); value != "" {
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || n < 1 || n > 1000000 {
+			return config{}, errors.New("billing_max_pending_events must be between 1 and 1000000")
+		}
+		cfg.maxPendingEvents = n
 	}
 	return cfg, nil
 }

@@ -37,7 +37,8 @@ func New(processor Processor, interval time.Duration, batch int, logger *slog.Lo
 }
 
 // Run is synchronous: its caller owns the goroutine and waits for shutdown.
-// Each attempt is followed by a delay, including failures and full batches.
+// Each attempt is followed by a delay. Consecutive failures exponentially back
+// off to max(30s, interval); a successful batch resets the normal polling delay.
 func (w *Worker) Run(ctx context.Context) error {
 	if w.processor == nil || w.logger == nil || w.interval <= 0 || w.batch < 1 || w.batch > 1000 {
 		return errors.New("invalid worker configuration")
@@ -48,6 +49,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	defer w.stop()
 	timer := time.NewTimer(0)
 	defer timer.Stop()
+	delay := w.interval
+	maxDelay := max(30*time.Second, w.interval)
 	for {
 		select {
 		case <-ctx.Done():
@@ -69,10 +72,18 @@ func (w *Worker) Run(ctx context.Context) error {
 				// Driver errors may contain credentials or SQL parameters. Never log
 				// their text; retry uses the same transaction-safe pending queue.
 				w.logger.Warn("usage batch failed; retry scheduled")
-			} else if count > 0 {
-				w.logger.Info("usage batch completed", "events", count)
+				if delay >= maxDelay/2 {
+					delay = maxDelay
+				} else {
+					delay *= 2
+				}
+			} else {
+				delay = w.interval
+				if count > 0 {
+					w.logger.Info("usage batch completed", "events", count)
+				}
 			}
-			timer.Reset(w.interval)
+			timer.Reset(delay)
 		}
 	}
 }

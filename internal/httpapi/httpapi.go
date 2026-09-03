@@ -282,6 +282,9 @@ func (h *handler) serviceError(w http.ResponseWriter, err error) int {
 		return h.fail(w, http.StatusConflict, "event_conflict")
 	case errors.Is(err, billing.ErrNotFound):
 		return h.fail(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, billing.ErrQueueFull):
+		w.Header().Set("Retry-After", "1")
+		return h.fail(w, http.StatusServiceUnavailable, "queue_full")
 	default:
 		// Repository errors can contain credentials or SQL values; never log them.
 		return h.fail(w, http.StatusInternalServerError, "internal_error")

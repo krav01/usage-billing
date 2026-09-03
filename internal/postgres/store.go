@@ -13,13 +13,23 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool       *pgxpool.Pool
+	maxPending int64
 }
 
 var _ billing.Repository = (*Store)(nil)
 
 func New(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{pool: pool, maxPending: 10000}
+}
+
+// NewWithQueueLimit bounds durable pending work. All API instances sharing this
+// queue must use the same limit and admission protocol.
+func NewWithQueueLimit(pool *pgxpool.Pool, limit int64) (*Store, error) {
+	if pool == nil || limit < 1 || limit > 1000000 {
+		return nil, errors.New("pool and queue limit between 1 and 1000000 are required")
+	}
+	return &Store{pool: pool, maxPending: limit}, nil
 }
 
 // Accept commits both immutable input and its pending item, or neither. On a
@@ -41,6 +51,23 @@ func (s *Store) Accept(ctx context.Context, event billing.Event) (billing.Event,
 		}
 		created = tag.RowsAffected() == 1
 		if created {
+			// Serialize only new admissions, across processes, until commit. The
+			// relation OID scopes this advisory key to this queue in this database.
+			// Do NOT combine the lock and count into one SQL statement: the count
+			// needs a fresh READ COMMITTED snapshot after the previous holder commits.
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock('pending_events'::regclass::oid::bigint)`); err != nil {
+				return fmt.Errorf("lock queue admission: %w", err)
+			}
+			var pending int64
+			if err := tx.QueryRow(ctx, `
+				SELECT COUNT(*) FROM (SELECT 1 FROM pending_events LIMIT $1) AS bounded_queue`,
+				s.maxPending).Scan(&pending); err != nil {
+				return fmt.Errorf("check queue capacity: %w", err)
+			}
+			if pending >= s.maxPending {
+				// Roll back the usage insert too: a rejected event is never acknowledged.
+				return billing.ErrQueueFull
+			}
 			if _, err := tx.Exec(ctx, `INSERT INTO pending_events (event_id) VALUES ($1)`, event.EventID); err != nil {
 				return fmt.Errorf("enqueue usage event: %w", err)
 			}
