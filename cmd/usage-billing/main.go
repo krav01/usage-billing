@@ -15,6 +15,7 @@ import (
 	"github.com/krav01/usage-billing/internal/billing"
 	"github.com/krav01/usage-billing/internal/httpapi"
 	"github.com/krav01/usage-billing/internal/postgres"
+	"github.com/krav01/usage-billing/internal/telemetry"
 	"github.com/krav01/usage-billing/internal/worker"
 )
 
@@ -62,21 +63,26 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("billing service setup failed")
 	}
-	handler, err := httpapi.New(
-		service,
-		pool.Ping,
-		cfg.token,
-		logger,
-	)
-	if err != nil {
-		return errors.New("http handler setup failed")
-	}
 	w := worker.New(
 		store,
 		cfg.workerInterval,
 		cfg.workerBatch,
 		logger,
 	)
+	metrics, err := telemetry.New(store.QueueStats, w.Snapshot)
+	if err != nil {
+		return errors.New("telemetry setup failed")
+	}
+	handler, err := httpapi.New(
+		service,
+		pool.Ping,
+		cfg.token,
+		logger,
+		metrics,
+	)
+	if err != nil {
+		return errors.New("http handler setup failed")
+	}
 	lc := net.ListenConfig{}
 	listener, err := lc.Listen(ctx, "tcp", cfg.httpAddr)
 	if err != nil {

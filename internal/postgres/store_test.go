@@ -187,6 +187,38 @@ func TestProcessBatchRollbackSkipLockedAndRestart(t *testing.T) {
 	}
 }
 
+func TestQueueStats(t *testing.T) {
+	t.Parallel()
+	store, _ := fixture(t)
+	pending, age, err := store.QueueStats(t.Context())
+	if err != nil || pending != 0 || age != 0 {
+		t.Fatalf("empty queue metrics: pending=%d age=%v err=%v", pending, age, err)
+	}
+	for _, id := range []string{"metrics-first", "metrics-second"} {
+		if _, _, err := store.Accept(t.Context(), event(id, "metrics-customer", 1, 1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pending, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 2 || age < 0 {
+		t.Fatalf("pending queue metrics: pending=%d age=%v err=%v", pending, age, err)
+	}
+	if n, err := store.ProcessBatch(t.Context(), 1); err != nil || n != 1 {
+		t.Fatalf("process one: n=%d err=%v", n, err)
+	}
+	pending, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 1 || age < 0 {
+		t.Fatalf("partial queue metrics: pending=%d age=%v err=%v", pending, age, err)
+	}
+	if n, err := store.ProcessBatch(t.Context(), 10); err != nil || n != 1 {
+		t.Fatalf("process remainder: n=%d err=%v", n, err)
+	}
+	pending, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 0 || age != 0 {
+		t.Fatalf("drained queue metrics: pending=%d age=%v err=%v", pending, age, err)
+	}
+}
+
 func TestConcurrentWorkersAndConsistentSummary(t *testing.T) {
 	t.Parallel()
 	store, _ := fixture(t)

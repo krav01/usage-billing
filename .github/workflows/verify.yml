@@ -150,6 +150,13 @@ jobs:
             sleep 1
           done
           jq -e '.processed == 1 and .pending == 0 and .units == "3"' /tmp/summary.json
+          curl -fsS --max-time 5 -H "Authorization: Bearer $BILLING_API_TOKEN" \
+            http://127.0.0.1:8080/metrics > /tmp/metrics.txt
+          grep -Fx 'usage_billing_queue_scrape_success 1' /tmp/metrics.txt
+          grep -Fx 'usage_billing_queue_pending_events 0' /tmp/metrics.txt
+          grep -Fx 'usage_billing_worker_running 1' /tmp/metrics.txt
+          awk '$1 == "usage_billing_worker_events_processed_total" && $2 >= 1 { found = 1 } END { exit !found }' \
+            /tmp/metrics.txt
           docker compose restart api
           wait_ready
           status=$(curl -sS --max-time 5 -o /tmp/replayed.json -w '%{http_code}' \
