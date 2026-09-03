@@ -56,7 +56,7 @@ func (s *Service) Accept(ctx context.Context, input Input) (Event, bool, error) 
 	}
 	event, created, err := s.repo.Accept(ctx, Event{
 		RequestID: id,
-		Input: input, UnitPriceMicros: s.rate,
+		Input:     input, UnitPriceMicros: s.rate,
 		AmountMicros: input.Units * s.rate, Currency: "USD",
 	})
 	if err != nil {

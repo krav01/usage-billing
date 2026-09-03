@@ -44,7 +44,7 @@ func TestRunLogsConfirmedAndUnconfirmedEventOutcomes(t *testing.T) {
 	const id = "0123456789abcdef0123456789abcdef"
 	for _, tc := range []struct {
 		name, outcome, requestID, message string
-		err                              error
+		err                               error
 	}{
 		{name: "posted", outcome: "processed", requestID: id, message: "usage event processed"},
 		{name: "retry", outcome: "retry_scheduled", requestID: id, message: "usage event processing failed"},
