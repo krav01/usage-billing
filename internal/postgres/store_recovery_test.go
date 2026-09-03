@@ -167,6 +167,17 @@ func TestProcessBatchDeadlineDoesNotConsumeFailures(t *testing.T) {
 			if n != 0 || !errors.Is(err, context.DeadlineExceeded) {
 				t.Errorf("blocked batch: %d %v", n, err)
 			}
+			// pgx closes cancelled connections asynchronously. Wait for the actual
+			// server-side row-lock release; a new SKIP LOCKED call may legally
+			// return an empty batch until that rollback has finished.
+			barrierCtx, barrierCancel := context.WithTimeout(t.Context(), 5*time.Second)
+			var unlockedID string
+			err = pool.QueryRow(barrierCtx, `SELECT event_id FROM pending_events
+				WHERE event_id = 'blocked' FOR UPDATE`).Scan(&unlockedID)
+			barrierCancel()
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	})
