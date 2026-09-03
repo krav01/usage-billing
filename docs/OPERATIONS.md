@@ -13,13 +13,14 @@ design to a real service.
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
-| `usage_billing_queue_pending_events` | gauge | Global durable queue depth |
+| `usage_billing_queue_pending_events` | gauge | Global durable work eligible for automatic processing |
+| `usage_billing_queue_failed_events` | gauge | Quarantined work requiring manual recovery |
 | `usage_billing_queue_oldest_event_age_seconds` | gauge | Age of the oldest pending event, or zero when empty |
 | `usage_billing_queue_scrape_success` | gauge | `1` when the current queue query succeeded |
 | `usage_billing_queue_scrape_errors_total` | counter | Queue queries that failed in this process |
 
 If the query fails, the endpoint still exposes worker and HTTP metrics plus
-`queue_scrape_success 0`; it omits queue depth and age rather than reporting
+`queue_scrape_success 0`; it omits pending/failed counts and age rather than reporting
 misleading zeroes.
 
 ## Worker metrics
@@ -36,6 +37,11 @@ misleading zeroes.
 Worker counters are process-local and reset on restart. Prometheus handles
 counter resets when `rate` is used. The queue depth and age are global database
 state, not process-local estimates.
+
+Handled integrity failures do not increment the batch-error counter: their transactions
+commit recovery state successfully. Alert on `usage_billing_queue_failed_events > 0`
+as well; the provisioned `BillingEventsQuarantined` rule does this. See
+[event recovery](EVENT_RECOVERY.md) before manually reactivating an event.
 
 Example PromQL:
 
@@ -60,6 +66,8 @@ dashboard, and tested alert rules. Real notification routing is not configured.
 ## Backpressure and retry policy
 
 `BILLING_MAX_PENDING_EVENTS` defaults to `10000` (allowed range 1–1000000).
+It counts **pending plus failed** rows. Quarantine retains an admission slot;
+manual retry uses that same slot, including when the queue is at capacity.
 New events are rejected with HTTP `503`, `{"error":"queue_full"}`, and
 `Retry-After: 1` when the durable queue reaches that limit. Rejection rolls back
 both usage and queue insertion. Already accepted events are never dropped, and
@@ -81,7 +89,8 @@ Consecutive worker failures double the delay up to `max(30s, WORKER_INTERVAL)`.
 With the default interval, the delays are 200ms, 400ms, 800ms, and so on, capped
 at 30 seconds. A successful batch (including an empty one) resets the delay to
 `WORKER_INTERVAL`. Cancellation interrupts the delay immediately. The worker does
-not discard failing events; this is not poison-message isolation. The deterministic
+not discard failing events. Confirmed event integrity failures use the separate
+three-attempt quarantine policy, not infrastructure backoff. The deterministic
 delay has no jitter, so many synchronized replicas require an additional policy.
 Producer clients should respect `Retry-After`, add their own bounded backoff/jitter,
 and reuse the same event ID. A retry hint does not guarantee capacity is available.

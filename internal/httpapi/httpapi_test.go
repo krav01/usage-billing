@@ -58,6 +58,101 @@ func (f fakeService) Summary(_ context.Context, id string) (billing.Summary, err
 	return billing.Summary{CustomerID: id, Currency: "USD", Units: "7", AmountMicros: "7000"}, f.err
 }
 
+func (f fakeService) Retry(_ context.Context, id string, generation int64) (billing.Event, bool, error) {
+	return billing.Event{Input: billing.Input{EventID: id}, RetryGeneration: generation + 1}, f.created, f.err
+}
+
+type retrySpy struct {
+	fakeService
+	calls       int
+	hasDeadline bool
+}
+
+func (s *retrySpy) Retry(ctx context.Context, id string, generation int64) (billing.Event, bool, error) {
+	s.calls++
+	_, s.hasDeadline = ctx.Deadline()
+	return s.fakeService.Retry(ctx, id, generation)
+}
+
+func TestRetryRoute(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		body    string
+		err     error
+		created bool
+		status  int
+		calls   int
+	}{
+		{name: "reactivated", body: `{"retry_generation":0}`, created: true, status: 202, calls: 1},
+		{name: "replay", body: `{"retry_generation":0}`, status: 200, calls: 1},
+		{name: "stale", body: `{"retry_generation":0}`, err: billing.ErrRetryConflict, status: 409, calls: 1},
+		{name: "missing", body: `{"retry_generation":0}`, err: billing.ErrNotFound, status: 404, calls: 1},
+		{name: "database error", body: `{"retry_generation":0}`, err: errors.New("private database details"), status: 500, calls: 1},
+		{name: "missing generation", body: `{}`, status: 400},
+		{name: "null", body: `{"retry_generation":null}`, status: 400},
+		{name: "duplicate", body: `{"retry_generation":0,"retry_generation":0}`, status: 400},
+		{name: "case variant", body: `{"Retry_Generation":0}`, status: 400},
+		{name: "negative", body: `{"retry_generation":-1}`, status: 400},
+		{name: "overflow", body: `{"retry_generation":9223372036854775808}`, status: 400},
+		{name: "decimal", body: `{"retry_generation":0.0}`, status: 400},
+		{name: "string", body: `{"retry_generation":"0"}`, status: 400},
+		{name: "trailing object", body: `{"retry_generation":0}{}`, status: 400},
+		{name: "extra field", body: `{"retry_generation":0,"units":7}`, status: 400},
+		{name: "invalid utf8", body: "{\xff}", status: 400},
+		{name: "oversized", body: strings.Repeat(" ", 16385), status: 413},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &retrySpy{fakeService: fakeService{err: tc.err, created: tc.created}}
+			var logs bytes.Buffer
+			h := newHandler(t, svc, &logs)
+			w := request(h, http.MethodPost, "/v1/events/event-1/retry", tc.body)
+			if w.Code != tc.status || svc.calls != tc.calls {
+				t.Fatalf("status=%d calls=%d body=%s", w.Code, svc.calls, w.Body)
+			}
+			if svc.calls > 0 && !svc.hasDeadline {
+				t.Error("retry lost HTTP deadline")
+			}
+			if strings.Contains(w.Body.String()+logs.String(), "private database details") {
+				t.Error("database error leaked")
+			}
+			if w.Code < 300 {
+				var event billing.Event
+				if err := json.Unmarshal(w.Body.Bytes(), &event); err != nil || event.EventID != "event-1" || event.RetryGeneration != 1 {
+					t.Fatalf("retry arguments lost: %+v %v", event, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRetryBoundaryProtection(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, method, auth, contentType string
+		status                          int
+	}{
+		{name: "missing token", method: "POST", contentType: "application/json", status: 401},
+		{name: "wrong token", method: "POST", auth: "Bearer invalid", contentType: "application/json", status: 401},
+		{name: "wrong method", method: "GET", auth: "Bearer " + token, contentType: "application/json", status: 405},
+		{name: "wrong content type", method: "POST", auth: "Bearer " + token, contentType: "text/plain", status: 415},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &retrySpy{}
+			h := newHandler(t, svc, io.Discard)
+			r := httptest.NewRequest(tc.method, "/v1/events/event-1/retry", strings.NewReader(`{"retry_generation":0}`))
+			r.Header.Set("Authorization", tc.auth)
+			r.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.status || svc.calls != 0 {
+				t.Fatalf("status=%d calls=%d", w.Code, svc.calls)
+			}
+		})
+	}
+}
+
 func newHandler(t *testing.T, service httpapi.Service, logs io.Writer) http.Handler {
 	t.Helper()
 	h, err := httpapi.New(

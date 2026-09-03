@@ -30,16 +30,21 @@ A failure before commit leaves pending work retryable. A unique event key in the
 ledger is the last defense against duplicate database charges. No external payment
 call occurs inside or outside this transaction.
 
-Multiple worker processes may share this queue, but the example is not a general
-purpose job platform. A permanently unprocessable event can delay a batch; production
-would still need poison-message isolation and operational alerts. The demo bounds
-new admissions and applies capped exponential retry delays, but does not quarantine
-failing events or add jitter for synchronized replicas.
+An integrity failure in the bulk ledger insert rolls back to a savepoint. The same
+locked batch then tries each event separately; healthy events proceed and confirmed
+per-event failures increment durable counters. Three failures quarantine an event.
+Any infrastructure or bookkeeping failure rolls back the entire transaction, including
+healthy inserts and counters. Counts are reported only after confirmed commit.
+See [event recovery](EVENT_RECOVERY.md) for the exact SQLSTATE allowlist and retry protocol.
+
+Multiple worker processes may share this queue, but it is not a general job platform.
+The demo bounds unfinished work and applies capped backoff to infrastructure failures;
+it has no jitter, deferred retry scheduling, or external side-effect deduplication.
 
 ## Reading totals
 
 One database statement reads a consistent snapshot of the customer's events and
-ledger state. Only processed events contribute to totals; pending and processed
+ledger state. Only processed events contribute to totals; pending, failed, and processed
 counts make eventual consistency explicit. PostgreSQL numeric aggregates are
 serialized as decimal strings to avoid overflowing the sum of valid int64 events.
 

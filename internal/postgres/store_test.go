@@ -61,12 +61,14 @@ func fixture(t testing.TB) (*postgres.Store, *pgxpool.Pool) {
 		t.Fatal("create isolated test pool")
 	}
 	t.Cleanup(pool.Close)
-	migration, err := os.ReadFile("../../migrations/000001_init.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatalf("apply test fixture: %v", err)
+	for _, path := range []string{"../../migrations/000001_init.up.sql", "../../migrations/000002_event_recovery.up.sql"} {
+		migration, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			t.Fatalf("apply test fixture: %v", err)
+		}
 	}
 	return postgres.New(pool), pool
 }
@@ -221,16 +223,17 @@ func TestProcessBatchRollbackSkipLockedAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries ADD CONSTRAINT fail_post CHECK (event_id <> 'second')`); err != nil {
+	// A schema error is not an event integrity failure and must roll back the batch.
+	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries RENAME COLUMN event_id TO unavailable_event_id`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ProcessBatch(t.Context(), 10); err == nil {
 		t.Fatal("expected ledger insert failure")
 	}
-	assertSummary(t, store, "synthetic", "0", "0", 2, 0)
-	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries DROP CONSTRAINT fail_post`); err != nil {
+	if _, err := pool.Exec(t.Context(), `ALTER TABLE ledger_entries RENAME COLUMN unavailable_event_id TO event_id`); err != nil {
 		t.Fatal(err)
 	}
+	assertSummary(t, store, "synthetic", "0", "0", 2, 0)
 	tx, err := pool.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -270,8 +273,8 @@ func TestProcessBatchRollbackSkipLockedAndRestart(t *testing.T) {
 func TestQueueStats(t *testing.T) {
 	t.Parallel()
 	store, _ := fixture(t)
-	pending, age, err := store.QueueStats(t.Context())
-	if err != nil || pending != 0 || age != 0 {
+	pending, failed, age, err := store.QueueStats(t.Context())
+	if err != nil || pending != 0 || failed != 0 || age != 0 {
 		t.Fatalf("empty queue metrics: pending=%d age=%v err=%v", pending, age, err)
 	}
 	for _, id := range []string{"metrics-first", "metrics-second"} {
@@ -279,22 +282,22 @@ func TestQueueStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pending, age, err = store.QueueStats(t.Context())
-	if err != nil || pending != 2 || age < 0 {
+	pending, failed, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 2 || failed != 0 || age < 0 {
 		t.Fatalf("pending queue metrics: pending=%d age=%v err=%v", pending, age, err)
 	}
 	if n, err := store.ProcessBatch(t.Context(), 1); err != nil || n != 1 {
 		t.Fatalf("process one: n=%d err=%v", n, err)
 	}
-	pending, age, err = store.QueueStats(t.Context())
-	if err != nil || pending != 1 || age < 0 {
+	pending, failed, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 1 || failed != 0 || age < 0 {
 		t.Fatalf("partial queue metrics: pending=%d age=%v err=%v", pending, age, err)
 	}
 	if n, err := store.ProcessBatch(t.Context(), 10); err != nil || n != 1 {
 		t.Fatalf("process remainder: n=%d err=%v", n, err)
 	}
-	pending, age, err = store.QueueStats(t.Context())
-	if err != nil || pending != 0 || age != 0 {
+	pending, failed, age, err = store.QueueStats(t.Context())
+	if err != nil || pending != 0 || failed != 0 || age != 0 {
 		t.Fatalf("drained queue metrics: pending=%d age=%v err=%v", pending, age, err)
 	}
 }

@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
   "time": {
     "from": "now-30m",
@@ -17,7 +17,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "Pending events",
+      "title": "Pending and failed events",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -53,6 +53,11 @@
           "refId": "A",
           "expr": "max(usage_billing_queue_pending_events{job=\"usage-billing\"})",
           "legendFormat": "Pending events"
+        },
+        {
+          "refId": "B",
+          "expr": "max(usage_billing_queue_failed_events{job=\"usage-billing\"})",
+          "legendFormat": "Failed events"
         }
       ]
     },

@@ -50,7 +50,7 @@ make loadtest
 ```
 
 The load client writes synthetic usage to the local API. Wait at least two 15-second
-scrapes for rate calculations. The six panels show queue depth, oldest pending age,
+scrapes for rate calculations. The six panels show pending/failed queue depth, oldest pending age,
 worker throughput, worker batch error ratio, event API request rates by status class,
 and target/queue-query/worker health. Rates describe the observed interval, not a
 capacity guarantee. A short-lived queue can drain between scrapes and be missed.
@@ -59,7 +59,7 @@ does not invent histogram metrics that the service does not export.
 
 ## Alerts and tests
 
-Prometheus evaluates five demo alerts: missing/down target, unreadable queue,
+Prometheus evaluates six demo alerts: quarantined events, missing/down target, unreadable queue,
 sustained old backlog, sustained worker batch errors, and a stopped worker with a
 reachable API. Thresholds and `for` durations are examples, not measured SLOs.
 View state in the Prometheus **Alerts** page. There is no Alertmanager, email,

@@ -59,6 +59,11 @@ func (r *memoryRepository) Summary(_ context.Context, id string) (billing.Summar
 	return billing.Summary{CustomerID: id, Currency: "USD", Units: "0", AmountMicros: "0"}, nil
 }
 
+func (r *memoryRepository) Retry(ctx context.Context, id string, _ int64) (billing.Event, bool, error) {
+	event, err := r.Get(ctx, id)
+	return event, false, err
+}
+
 func newService(t *testing.T, repo billing.Repository, rate int64) *billing.Service {
 	t.Helper()
 	svc, err := billing.New(repo, rate)
@@ -77,6 +82,34 @@ func TestNew(t *testing.T) {
 	}
 	if _, err := billing.New(nil, 1); err == nil {
 		t.Fatal("nil repository accepted")
+	}
+}
+
+func TestServiceRetryValidation(t *testing.T) {
+	t.Parallel()
+	repo := newRepository()
+	svc := newService(t, repo, 1000)
+	for _, tc := range []struct {
+		name, id   string
+		generation int64
+	}{
+		{name: "empty id"},
+		{name: "invalid id", id: "bad/id"},
+		{name: "negative generation", id: "valid", generation: -1},
+		{name: "overflow on increment", id: "valid", generation: math.MaxInt64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := svc.Retry(t.Context(), tc.id, tc.generation); !errors.Is(err, billing.ErrInvalid) {
+				t.Fatalf("validation: %v", err)
+			}
+		})
+	}
+	if _, _, err := svc.Retry(t.Context(), "missing", 0); !errors.Is(err, billing.ErrNotFound) {
+		t.Fatalf("lost repository error: %v", err)
+	}
+	repo.err = billing.ErrRetryConflict
+	if _, _, err := svc.Retry(t.Context(), "valid", 0); !errors.Is(err, billing.ErrRetryConflict) {
+		t.Fatalf("lost retry conflict: %v", err)
 	}
 }
 
