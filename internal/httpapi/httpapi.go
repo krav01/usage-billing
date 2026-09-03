@@ -7,8 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -141,7 +141,6 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"request_id", requestID,
 	)
 }
-
 
 type requestIDKey struct{}
 
