@@ -203,6 +203,10 @@ jobs:
       - name: Verify PostgreSQL crash and recovery during a worker transaction
         shell: bash
         run: bash scripts/test-postgres-outage.sh
+      - name: Verify backup restore and processing from a new database
+        # Restore uses the existing built images and disposable database only.
+        # No extra runner or scheduled backup storage is provisioned.
+        run: bash scripts/test-backup-restore.sh
       - name: Validate and test monitoring alert rules
         run: |
           make monitoring-secrets
