@@ -29,6 +29,7 @@ class FakeAPI:
     def __init__(self):
         self.main = SHA
         self.prs = [{
+            "number": 15, "merged": True,
             "merged_at": "2026-09-03T00:00:00Z", "merge_commit_sha": SHA,
             "head": {"sha": HEAD, "ref": BRANCH, "repo": {"full_name": REPOSITORY}},
             "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
@@ -58,7 +59,9 @@ class FakeAPI:
                 return {"object": {"sha": "c" * 40}}
             return {"object": {"sha": self.main}}
         if path.startswith("pulls?"):
-            return self.prs
+            return [{"number": pr["number"]} for pr in self.prs]
+        if path == "pulls/15":
+            return self.prs[0]
         if path.startswith("actions/runs?"):
             query = parse_qs(urlsplit(path).query)
             return {"workflow_runs": self.runs if query["head_sha"] == [SHA] else self.dependencies}
@@ -94,13 +97,15 @@ class PublicationGuards(unittest.TestCase):
         publish(event, "", forbidden)
 
     def test_current_main_and_unique_release_merge_are_required(self):
-        for field in ("main", "merge", "multiple", "fork"):
+        for field in ("main", "merge", "unmerged", "multiple", "fork"):
             with self.subTest(field=field):
                 api = FakeAPI()
                 if field == "main":
                     api.main = "c" * 40
                 elif field == "merge":
                     api.prs[0]["merge_commit_sha"] = "c" * 40
+                elif field == "unmerged":
+                    api.prs[0]["merged"] = False
                 elif field == "multiple":
                     api.prs *= 2
                 else:
