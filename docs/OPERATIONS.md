@@ -46,7 +46,7 @@ sum(rate(usage_billing_worker_events_processed_total[5m]))
 # Non-context batch error ratio. Clamp avoids division by zero.
 sum(rate(usage_billing_worker_batch_errors_total[5m]))
 /
-clamp_min(sum(rate(usage_billing_worker_batch_attempts_total[5m])), 1)
+clamp_min(sum(rate(usage_billing_worker_batch_attempts_total[5m])), 1e-9)
 
 # Candidate alerts; tune durations and thresholds from measured workload data.
 usage_billing_queue_scrape_success == 0
@@ -54,8 +54,8 @@ usage_billing_queue_oldest_event_age_seconds > 60
 ```
 
 The `60`-second queue-age threshold is illustrative, not a measured service-level
-objective. A real deployment also needs an external Prometheus-compatible
-collector, dashboards, alert routing, and retention policy.
+objective. [Local monitoring](MONITORING.md) provides an optional collector,
+dashboard, and tested alert rules. Real notification routing is not configured.
 
 ## Backpressure and retry policy
 

@@ -116,10 +116,13 @@ jobs:
         run: |
           password=$(openssl rand -hex 24)
           token=$(openssl rand -hex 32)
+          grafana_password=$(openssl rand -hex 24)
           echo "::add-mask::$password"
           echo "::add-mask::$token"
+          echo "::add-mask::$grafana_password"
           echo "POSTGRES_PASSWORD=$password" >> "$GITHUB_ENV"
           echo "BILLING_API_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "GRAFANA_ADMIN_PASSWORD=$grafana_password" >> "$GITHUB_ENV"
       - name: Build and start isolated local stack
         run: docker compose up -d --build
       - name: Verify authenticated API and restart durability
@@ -197,6 +200,15 @@ jobs:
       - name: Verify PostgreSQL crash and recovery during a worker transaction
         shell: bash
         run: bash scripts/test-postgres-outage.sh
+      - name: Validate and test monitoring alert rules
+        run: |
+          docker compose -f compose.yaml -f compose.monitoring.yaml run --rm --no-deps \
+            --entrypoint /bin/promtool prometheus check rules /etc/prometheus/alerts.yml
+          make monitoring-test
+      - name: Verify local Prometheus and Grafana provisioning
+        run: |
+          docker compose -f compose.yaml -f compose.monitoring.yaml up -d --no-deps prometheus grafana
+          bash scripts/test-monitoring.sh
       - name: Upload full-service load samples
         if: always()
         uses: actions/upload-artifact@v7.0.1
@@ -207,8 +219,8 @@ jobs:
       - name: Show bounded diagnostics on failure
         if: failure()
         run: |
-          docker compose ps -a
-          docker compose logs --no-color --tail=100 api migrate
+          docker compose -f compose.yaml -f compose.monitoring.yaml ps -a
+          docker compose -f compose.yaml -f compose.monitoring.yaml logs --no-color --tail=100 api migrate prometheus grafana
       - name: Stop disposable stack
         if: always()
-        run: docker compose down --volumes
+        run: docker compose -f compose.yaml -f compose.monitoring.yaml down --volumes
