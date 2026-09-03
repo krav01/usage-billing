@@ -21,6 +21,8 @@ curl --fail-with-body --retry 20 --retry-delay 1 --retry-all-errors \
 If a demo volume already exists, retain its original credentials instead of
 regenerating them. Startup builds the application and runs versioned migrations
 only against this Compose database. Never supply an existing/production database.
+For an existing demo from an earlier version, use the explicit
+[upgrade procedure](UPGRADING.md) before continuing this walkthrough.
 
 ## 2. Accept usage and replay it
 
