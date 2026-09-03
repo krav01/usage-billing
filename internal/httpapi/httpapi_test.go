@@ -489,7 +489,6 @@ func TestBusinessRequestCancellation(t *testing.T) {
 	})
 }
 
-
 func TestRequestIDCorrelation(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
