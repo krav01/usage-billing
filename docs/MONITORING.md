@@ -33,7 +33,9 @@ shared/untrusted machine. Grafana disables anonymous access and public sign-up.
 readable by the non-root containers and mounted read-only under `/run/secrets`.
 File-backed secrets preserve read-only container root filesystems; Compose rejects
 environment-backed secrets with that setting. No values are printed or tracked in
-Git. Keep these local files private and do not force-add them to Git. This is local
+Git. Keep these local files private and do not force-add them to Git. The directory
+is excluded from Docker build contexts as well as Git. The application
+build asserts that `.local` was not copied into its build stage. This is local
 secret injection, not an encrypted external manager; Docker administrators can
 still access it. The files remain after stopping so container restarts can mount
 them again. This helper is for disposable demo credentials, not secret rotation.

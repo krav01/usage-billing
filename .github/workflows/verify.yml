@@ -124,7 +124,10 @@ jobs:
           echo "BILLING_API_TOKEN=$token" >> "$GITHUB_ENV"
           echo "GRAFANA_ADMIN_PASSWORD=$grafana_password" >> "$GITHUB_ENV"
       - name: Build and start isolated local stack
-        run: docker compose up -d --build
+        run: |
+          make monitoring-secrets
+          git check-ignore .local/monitoring-secrets/billing-token .local/monitoring-secrets/grafana-password
+          docker compose up -d --build
       - name: Verify authenticated API and restart durability
         shell: bash
         run: |
