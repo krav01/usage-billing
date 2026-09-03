@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 REPOSITORY = "krav01/usage-billing"
 TAG = "v0.3.0"
-BRANCH = "release/v0.3.0-publisher-fix"
+BRANCH = "release/v0.3.0-final"
 
 
 def github(method, path, data=None, optional=False):
@@ -68,13 +68,19 @@ def publish(event, notes, api=github):
         return "Skipped: not the unique release branch merge"
     # List responses may omit merge metadata. Fetch the authoritative PR detail.
     pr = api("GET", f"pulls/{prs[0]['number']}")
-    if not pr["merged"] or pr["merge_commit_sha"] != sha:
+    if not pr["merged"]:
         return "Skipped: not the unique release branch merge"
     if (
         pr["head"]["ref"] != BRANCH or pr["head"]["repo"]["full_name"] != REPOSITORY
         or pr["base"]["ref"] != "main" or pr["base"]["repo"]["full_name"] != REPOSITORY
     ):
         return "Skipped: unexpected release PR source"
+    # Bind the release to the actual Git merge object. PR responses can omit
+    # merge_commit_sha; the second parent must still be the exact reviewed head.
+    commit = api("GET", f"git/commits/{sha}")
+    parents = commit["parents"]
+    if commit["sha"] != sha or len(parents) != 2 or parents[1]["sha"] != pr["head"]["sha"]:
+        return "Skipped: commit does not merge the reviewed release head"
     query = urlencode({"head_sha": sha, "event": "push", "per_page": 100})
     runs = api("GET", f"actions/runs?{query}")["workflow_runs"]
     verified = []

@@ -28,9 +28,10 @@ def check(path, sha=SHA, event="push", number=1):
 class FakeAPI:
     def __init__(self):
         self.main = SHA
+        self.parents = ["c" * 40, HEAD]
         self.prs = [{
             "number": 15, "merged": True,
-            "merged_at": "2026-09-03T00:00:00Z", "merge_commit_sha": SHA,
+            "merged_at": "2026-09-03T00:00:00Z",
             "head": {"sha": HEAD, "ref": BRANCH, "repo": {"full_name": REPOSITORY}},
             "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
             "html_url": "https://example.test/pr",
@@ -62,6 +63,8 @@ class FakeAPI:
             return [{"number": pr["number"]} for pr in self.prs]
         if path == "pulls/15":
             return self.prs[0]
+        if path == f"git/commits/{SHA}":
+            return {"sha": SHA, "parents": [{"sha": parent} for parent in self.parents]}
         if path.startswith("actions/runs?"):
             query = parse_qs(urlsplit(path).query)
             return {"workflow_runs": self.runs if query["head_sha"] == [SHA] else self.dependencies}
@@ -97,13 +100,15 @@ class PublicationGuards(unittest.TestCase):
         publish(event, "", forbidden)
 
     def test_current_main_and_unique_release_merge_are_required(self):
-        for field in ("main", "merge", "unmerged", "multiple", "fork"):
+        for field in ("main", "merge", "nonmerge", "unmerged", "multiple", "fork"):
             with self.subTest(field=field):
                 api = FakeAPI()
                 if field == "main":
                     api.main = "c" * 40
                 elif field == "merge":
-                    api.prs[0]["merge_commit_sha"] = "c" * 40
+                    api.parents[1] = "c" * 40
+                elif field == "nonmerge":
+                    api.parents.pop()
                 elif field == "unmerged":
                     api.prs[0]["merged"] = False
                 elif field == "multiple":
