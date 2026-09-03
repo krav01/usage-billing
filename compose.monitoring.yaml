@@ -17,6 +17,8 @@ services:
     depends_on:
       api:
         condition: service_started
+    tmpfs:
+      - /tmp:size=64m
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
