@@ -32,6 +32,7 @@ jobs:
           go mod tidy
           go mod verify
           git diff --exit-code -- go.mod go.sum
+          gofmt -d .
           test -z "$(gofmt -l .)"
       - name: Unit tests with race detector
         run: go test -race -shuffle=on -count=1 -coverprofile=coverage.out ./...
