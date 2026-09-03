@@ -1,5 +1,32 @@
 # Pre-publication verification
 
+## v0.2.0 feature verification — 2026-09-03
+
+Feature commit `deb21a1b9ff38987fbedf9956a90239605dd80e2` passed
+[Verify Usage Billing](https://github.com/krav01/usage-billing/actions/runs/33771698211),
+[CodeQL](https://github.com/krav01/usage-billing/actions/runs/33771698200), and
+[Dependency Review](https://github.com/krav01/usage-billing/actions/runs/33771698186).
+The same source tree was merged at `c1e4c85904af5758989c92e94eeefaf34349edc5`.
+
+- Go 1.27.1 race tests, vet, golangci-lint v2.13.2, and vulnerability scanning.
+- Real PostgreSQL integration, migration round-trip, concurrent queue admission,
+  replay at capacity, and exact transaction outcomes.
+- Three complete 500-event, eight-client load runs with exact settlement checks.
+- Database crash during worker processing, rollback, and recovery using the same
+  API process: two unique ledger entries, ten units, 10000 micro-USD, zero pending.
+- Successful promtool checks/tests, authenticated scraping, six provisioned Grafana
+  panels, healthy datasource, valid panel queries, and denied anonymous access.
+- Secret files present on the runner but excluded from Git and the application
+  build context, with a build-stage assertion.
+
+CI exposed and fixed Compose secret/read-only incompatibility, promtool's writable
+temporary-directory requirement, and a container-discovery race after SIGKILL.
+The crash test now waits for confirmed exit and restarts the exact database ID.
+These are dated results for the listed commit, not claims about future commits,
+production performance, financial correctness, or permanent-disk-loss recovery.
+
+## Initial verification — 2026-09-02
+
 Checked on 2026-09-02 using Go 1.26.6 on Linux.
 
 | Check | Result |

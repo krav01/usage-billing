@@ -14,11 +14,15 @@ This is an educational project: no real customers, invoices, taxes, or payments.
 - An immutable ledger entry per event, committed with queue removal.
 - Integer pricing, overflow checks, and exact decimal-string aggregate totals.
 - Strict JSON validation, a trusted-producer bearer token, bounded requests, and graceful shutdown.
+- Bounded queue admission, worker retry backoff, and verified database-crash recovery.
+- Full-service load measurements and optional local monitoring with tested alerts.
 
 The database effects are idempotent; this is **not** a claim of exactly-once network delivery.
 The [design notes](docs/ARCHITECTURE.md) explain transaction boundaries and deliberate limits.
 See [verification evidence](docs/VERIFICATION.md) and
 [reproducible benchmarks](docs/PERFORMANCE.md) for measured scope and limitations.
+For a guided walkthrough, see the [demo script](docs/DEMO.md) and
+[v0.2.0 release notes](docs/releases/v0.2.0.md).
 
 ## Run the isolated demo
 
@@ -139,6 +143,6 @@ Passing tests are evidence of the exercised cases, not proof of financial correc
 This repository does not operate a payment provider, spend funds, or modify
 Sunday System. No performance figures are claimed without recorded measurements.
 Production work would include per-tenant authorization, TLS termination, rate
-limits and queue admission control, separate least-privilege database roles,
+limits and per-tenant quotas, separate least-privilege database roles,
 backups and restore drills, retention, invoice/refund rules, and a security review.
 The demo token grants access to every demo customer; never expose this setup publicly.

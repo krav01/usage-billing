@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Usage Billing
-  version: 0.1.0
+  version: 0.2.0
   description: Educational trusted-producer API. No real payments or tenant-level authorization.
 servers:
   - url: http://127.0.0.1:8080
