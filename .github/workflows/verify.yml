@@ -107,6 +107,9 @@ jobs:
     name: Docker API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Own every container/volume by run; never target the developer demo stack.
+      COMPOSE_PROJECT_NAME: usage-billing-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Generate disposable credentials
@@ -191,6 +194,9 @@ jobs:
               > "load-results/run-${attempt}.json"
             jq -c 'del(.successful_acceptance_latencies_ms, .queue_samples)' "load-results/run-${attempt}.json"
           done
+      - name: Verify PostgreSQL crash and recovery during a worker transaction
+        shell: bash
+        run: bash scripts/test-postgres-outage.sh
       - name: Upload full-service load samples
         if: always()
         uses: actions/upload-artifact@v7.0.1
