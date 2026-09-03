@@ -208,6 +208,9 @@ jobs:
         # Restore uses the existing built images and disposable database only.
         # No extra runner or scheduled backup storage is provisioned.
         run: bash scripts/test-backup-restore.sh
+      - name: Verify populated schema upgrade and durable request correlation
+        # Reuse built images; createdb must succeed before any migration runs.
+        run: bash scripts/test-schema-upgrade.sh
       - name: Validate and test monitoring alert rules
         run: |
           make monitoring-secrets
