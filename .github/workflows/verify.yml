@@ -160,6 +160,37 @@ jobs:
           curl -fsS --max-time 5 -H "Authorization: Bearer $BILLING_API_TOKEN" \
             http://127.0.0.1:8080/v1/customers/ci-customer/summary | \
             jq -e '.processed == 1 and .pending == 0 and .amount_micros == "3000"'
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Measure full HTTP, PostgreSQL, and worker path
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p load-results
+          {
+            go version
+            uname -sm
+            lscpu | grep -E '^(CPU\(s\)|Model name|Thread\(s\) per core|Core\(s\) per socket):'
+            docker version --format '{{.Server.Version}}'
+            docker compose exec -T postgres postgres --version
+            echo 'worker_interval=100ms worker_batch=100 pool_max_connections=8'
+            echo '3 sequential runs, 500 new events per run, 8 closed-loop clients, no warmup'
+          } > load-results/environment.txt
+          go build -o "$RUNNER_TEMP/billing-loadtest" ./cmd/loadtest
+          for attempt in 1 2 3; do
+            "$RUNNER_TEMP/billing-loadtest" -allow-demo-writes -requests 500 -concurrency 8 \
+              > "load-results/run-${attempt}.json"
+            jq -c 'del(.successful_acceptance_latencies_ms, .queue_samples)' "load-results/run-${attempt}.json"
+          done
+      - name: Upload full-service load samples
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: full-service-load-${{ github.sha }}
+          path: load-results/
+          retention-days: 14
       - name: Show bounded diagnostics on failure
         if: failure()
         run: |

@@ -43,3 +43,41 @@ on the same machine with the same command, dataset, versions, and concurrency.
 Use repeated samples and statistical comparison (for example, benchstat) before
 claiming a change is faster. Do not compare raw local and hosted-runner timings
 as if their hardware and load were identical.
+
+## Full-service HTTP load test
+
+`cmd/loadtest` sends new synthetic events over real HTTP to the running Compose
+application, which writes PostgreSQL and processes its queue with the real worker.
+Start only the isolated demo described in the README, with its default price of
+1000 micro-USD per unit. Then run `make loadtest` or:
+
+```bash
+go run ./cmd/loadtest -allow-demo-writes -requests 500 -concurrency 8 > load.json
+```
+
+The command requires explicit consent to create demo rows, only accepts numeric
+loopback HTTP origins, ignores proxy environment variables, and refuses redirects.
+It generates a new customer/event namespace for every run and never deletes rows.
+Do not run against a production database, including one forwarded to localhost.
+The maximum is 10,000 events, 32 clients, and five minutes; defaults are 500, 8,
+and two minutes. The bearer token comes only from `BILLING_API_TOKEN` and is not
+included in output. Failed requests are not retried; uncertain outcomes are errors.
+
+The JSON report contains successful HTTP acceptance p95/p99 (nearest rank), raw
+successful latency samples, accepted requests/second, failed and unattempted counts,
+and queue samples every 250ms plus the final drain observation. HTTP timing includes
+the response body and validation but **not** asynchronous processing. Settlement
+separately requires exactly the requested event count, correct units/amount, and
+zero pending work. Any request/sample error, unfinished request, or failure to
+settle before the deadline fails the run. A zero error rate is not sufficient.
+
+This is a finite **closed-loop** load: clients wait for responses before sending
+again, with no warmup phase. It does not measure sustainable capacity, an open-loop
+arrival rate, per-event processing p95, TLS, or saturation behavior. Queue polling
+adds database load and its observed maximum may miss peaks between samples.
+
+CI runs three sequential repetitions after the Docker restart smoke check,
+using the same disposable database (which grows across runs), and uploads raw
+JSON plus CPU/OS/Go/PostgreSQL/Docker metadata as `full-service-load-<SHA>` for
+14 days. Timing is recorded, not subjected to an arbitrary performance threshold.
+Compare like-for-like repeated runs before claiming any performance change.
