@@ -1,0 +1,17 @@
+name: Standards drift
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    uses: krav01/go-ci-standards/.github/workflows/standards-drift.yml@46c957083701ed4d041228babee6e5d32c944c0e
+    with:
+      current_version: '1.4.0'
+      fail_on_drift: false
