@@ -1,11 +1,14 @@
-version: 1.5.0
+version: 1.6.0
 maturity: high-load-critical
 source: krav01/dev-standards
-public_ci_source: krav01/go-ci-standards@27648c988928eb6e57407d4f97eab2e2f9cd6bd6
+public_ci_source: krav01/go-ci-standards@8925a43f25bf2af47ff3499a61946a0b07949f2b
 
 controls:
   reusable_ci: false
   standards_drift: true
+  standards_auto_upgrade: true
+  standards_fast_path: true
+  immutable_action_pins: true
   lint: true
   vulncheck: true
   race: true
@@ -22,6 +25,7 @@ controls:
   failure_recovery: true
   project_memory: true
   memory_freshness: true
+  memory_freshness_automation: true
   memory_hotspots: true
   verification_cache: true
   known_traps: true
