@@ -1,0 +1,34 @@
+version: 1.1.0
+maturity: high-load-critical
+source: krav01/dev-standards
+
+controls:
+  reusable_ci: false
+  lint: true
+  vulncheck: true
+  race: true
+  database_integration: true
+  fuzz: false
+  architecture_guard: false
+  dependency_review: true
+  codeql: true
+  dependabot: true
+  docker_smoke: true
+  performance_benchmarks: true
+  migration_roundtrip: true
+  backup_restore: true
+  failure_recovery: true
+
+exceptions:
+  - control: reusable_ci
+    reason: Public repository cannot call reusable workflows from private dev-standards.
+    revisit: Repository becomes private or shared workflow source becomes publicly accessible.
+  - control: standards_drift
+    reason: Public repository cannot call the private reusable drift workflow.
+    revisit: Repository becomes private or shared drift workflow source becomes publicly accessible.
+  - control: fuzz
+    reason: No parser or invariant-heavy surface currently requires a dedicated fuzz gate.
+    revisit: Add when parsing or invariant complexity increases.
+  - control: architecture_guard
+    reason: Current package structure is compact and existing review/tests provide sufficient protection.
+    revisit: Add when package boundaries or cross-layer dependencies expand.
