@@ -1,9 +1,11 @@
-version: 1.1.0
+version: 1.4.0
 maturity: high-load-critical
 source: krav01/dev-standards
+public_ci_source: krav01/go-ci-standards@46c957083701ed4d041228babee6e5d32c944c0e
 
 controls:
   reusable_ci: false
+  standards_drift: true
   lint: true
   vulncheck: true
   race: true
@@ -18,14 +20,16 @@ controls:
   migration_roundtrip: true
   backup_restore: true
   failure_recovery: true
+  project_memory: true
+  memory_freshness: true
+  memory_hotspots: true
+  verification_cache: true
+  known_traps: true
 
 exceptions:
   - control: reusable_ci
-    reason: Public repository cannot call reusable workflows from private dev-standards.
-    revisit: Repository becomes private or shared workflow source becomes publicly accessible.
-  - control: standards_drift
-    reason: Public repository cannot call the private reusable drift workflow.
-    revisit: Repository becomes private or shared drift workflow source becomes publicly accessible.
+    reason: Existing local verification is materially stricter and includes project-specific formatting, release guards, PostgreSQL integration, benchmarks, Docker smoke, outage recovery, backup restore, schema upgrade, and monitoring validation.
+    revisit: Re-evaluate when the public reusable workflow supports project-specific extension without duplicating heavy checks.
   - control: fuzz
     reason: No parser or invariant-heavy surface currently requires a dedicated fuzz gate.
     revisit: Add when parsing or invariant complexity increases.
