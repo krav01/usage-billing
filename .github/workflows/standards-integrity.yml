@@ -1,0 +1,62 @@
+name: Standards integrity
+
+on:
+  pull_request:
+    paths:
+      - '.standards.yml'
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.standards.yml'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start fast-path budget timer
+        run: echo "CI_BUDGET_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Verify standards metadata and immutable action pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(awk '$1 == "version:" {print $2; exit}' .standards.yml)
+          source=$(awk '$1 == "public_ci_source:" {print $2; exit}' .standards.yml)
+          source_sha=${source##*@}
+          drift_sha=$(sed -n -E 's#.*standards-drift.yml@([0-9a-f]{40}).*#\1#p' .github/workflows/standards-drift.yml | head -n1)
+          drift_version=$(sed -n -E "s/.*current_version: '([^']+)'.*/\1/p" .github/workflows/standards-drift.yml | head -n1)
+
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$drift_sha" == "$source_sha" ]]
+          [[ "$drift_version" == "$version" ]]
+
+          failed=0
+          while IFS= read -r workflow; do
+            while IFS= read -r target; do
+              [[ -z "$target" || "$target" == ./* || "$target" == docker://* ]] && continue
+              ref=${target##*@}
+              if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error file=$workflow::Non-immutable action reference: $target"
+                failed=1
+              fi
+            done < <(sed -n -E 's/^[[:space:]]*-[[:space:]]*uses:[[:space:]]*([^[:space:]#]+).*/\1/p; s/^[[:space:]]*uses:[[:space:]]*([^[:space:]#]+).*/\1/p' "$workflow")
+          done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
+          [[ $failed -eq 0 ]]
+      - name: Check fast-path duration budget
+        if: always()
+        shell: bash
+        run: |
+          elapsed=$(( $(date +%s) - CI_BUDGET_STARTED ))
+          echo "Standards integrity duration: ${elapsed}s (budget: 300s)"
+          if (( elapsed > 300 )); then
+            echo "::warning title=CI duration budget exceeded::Fast standards path took ${elapsed}s; target is <=300s."
+          fi

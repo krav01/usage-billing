@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true
-      - name: Open forward-only standards upgrade PR
+      - name: Open validated forward-only standards upgrade PR
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -29,10 +29,16 @@ jobs:
           set -euo pipefail
 
           current=$(awk '$1 == "version:" {print $2; exit}' .standards.yml)
-          tag=$(gh api repos/krav01/go-ci-standards/releases/latest --jq .tag_name)
+          release=$(gh api repos/krav01/go-ci-standards/releases/latest)
+          tag=$(jq -r '.tag_name' <<<"$release")
+          draft=$(jq -r '.draft' <<<"$release")
+          prerelease=$(jq -r '.prerelease' <<<"$release")
           latest=${tag#v}
-          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
 
+          [[ "$draft" == "false" && "$prerelease" == "false" ]] || { echo "Latest release is not stable" >&2; exit 1; }
+          [[ "$tag" == "v$latest" && -n "$latest" ]] || { echo "Invalid release tag: $tag" >&2; exit 1; }
+
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
           if [[ "$newest" != "$latest" || "$current" == "$latest" ]]; then
             echo "No forward standards upgrade: current=$current latest=$latest"
             exit 0
@@ -50,6 +56,12 @@ jobs:
             exit 1
           fi
 
+          [[ "$public_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Resolved release SHA is invalid" >&2; exit 1; }
+          gh api "repos/krav01/go-ci-standards/commits/$public_sha" >/dev/null
+          published_version=$(gh api "repos/krav01/go-ci-standards/contents/VERSION?ref=$public_sha" --jq .content | tr -d '\n' | base64 --decode | tr -d '[:space:]')
+          [[ "$published_version" == "$latest" ]] || { echo "Release tag/SHA VERSION mismatch: tag=$latest file=$published_version" >&2; exit 1; }
+          gh api "repos/krav01/go-ci-standards/contents/.github/workflows/standards-drift.yml?ref=$public_sha" >/dev/null
+
           branch="chore/standards-$latest"
           if [[ $(gh pr list --state open --head "$branch" --json number --jq 'length') -gt 0 ]]; then
             echo "Upgrade PR already exists for $branch"
@@ -61,10 +73,22 @@ jobs:
           sed -i -E "s#(uses: krav01/go-ci-standards/.github/workflows/standards-drift.yml@)[0-9a-f]{40}#\\1$public_sha#" .github/workflows/standards-drift.yml
           sed -i -E "s/current_version: '[^']+'/current_version: '$latest'/" .github/workflows/standards-drift.yml
 
+          changed=$(git diff --name-only)
+          expected=$(printf '%s\n' '.github/workflows/standards-drift.yml' '.standards.yml')
+          if [[ "$(printf '%s\n' "$changed" | sort)" != "$(printf '%s\n' "$expected" | sort)" ]]; then
+            echo "Unexpected files in automated standards upgrade:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
           git add .standards.yml .github/workflows/standards-drift.yml
           git commit -m "chore: adopt development standards $latest"
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title "chore: adopt development standards $latest" --body "Automated forward-only standards upgrade to $latest. Public workflow pin: $public_sha. Review and CI are still required; this workflow never auto-merges."
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: adopt development standards $latest" \
+            --body "Automated forward-only standards upgrade to $latest. Verified release workflow pin: $public_sha. Only .standards.yml and standards-drift.yml were changed. Review and CI are still required; this workflow never auto-merges."
