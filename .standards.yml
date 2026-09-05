@@ -1,7 +1,7 @@
-version: 1.4.0
+version: 1.5.0
 maturity: high-load-critical
 source: krav01/dev-standards
-public_ci_source: krav01/go-ci-standards@46c957083701ed4d041228babee6e5d32c944c0e
+public_ci_source: krav01/go-ci-standards@27648c988928eb6e57407d4f97eab2e2f9cd6bd6
 
 controls:
   reusable_ci: false
