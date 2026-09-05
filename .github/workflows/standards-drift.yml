@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   drift:
-    uses: krav01/go-ci-standards/.github/workflows/standards-drift.yml@27648c988928eb6e57407d4f97eab2e2f9cd6bd6
+    uses: krav01/go-ci-standards/.github/workflows/standards-drift.yml@8925a43f25bf2af47ff3499a61946a0b07949f2b
     with:
-      current_version: '1.5.0'
+      current_version: '1.6.0'
       fail_on_drift: false

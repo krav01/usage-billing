@@ -3,8 +3,16 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.standards.yml'
+      - '.github/workflows/standards-drift.yml'
+      - '.github/workflows/standards-upgrade.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '.standards.yml'
+      - '.github/workflows/standards-drift.yml'
+      - '.github/workflows/standards-upgrade.yml'
   schedule:
     - cron: '41 6 * * 1'
   workflow_dispatch:
@@ -21,16 +29,16 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: github/codeql-action/init@v4.37.9
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: go
           build-mode: manual
           queries: security-extended
       - run: go build ./...
-      - uses: github/codeql-action/analyze@v4.37.9
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: /language:go

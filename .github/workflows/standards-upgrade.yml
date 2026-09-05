@@ -1,0 +1,70 @@
+name: Standards upgrade
+
+on:
+  schedule:
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: standards-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - name: Open forward-only standards upgrade PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          current=$(awk '$1 == "version:" {print $2; exit}' .standards.yml)
+          tag=$(gh api repos/krav01/go-ci-standards/releases/latest --jq .tag_name)
+          latest=${tag#v}
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+
+          if [[ "$newest" != "$latest" || "$current" == "$latest" ]]; then
+            echo "No forward standards upgrade: current=$current latest=$latest"
+            exit 0
+          fi
+
+          ref_json=$(gh api "repos/krav01/go-ci-standards/git/ref/tags/v$latest")
+          object_type=$(jq -r '.object.type' <<<"$ref_json")
+          object_sha=$(jq -r '.object.sha' <<<"$ref_json")
+          if [[ "$object_type" == "tag" ]]; then
+            public_sha=$(gh api "repos/krav01/go-ci-standards/git/tags/$object_sha" --jq .object.sha)
+          elif [[ "$object_type" == "commit" ]]; then
+            public_sha=$object_sha
+          else
+            echo "Unsupported release ref type: $object_type" >&2
+            exit 1
+          fi
+
+          branch="chore/standards-$latest"
+          if [[ $(gh pr list --state open --head "$branch" --json number --jq 'length') -gt 0 ]]; then
+            echo "Upgrade PR already exists for $branch"
+            exit 0
+          fi
+
+          sed -i "s/^version: .*/version: $latest/" .standards.yml
+          sed -i "s#^public_ci_source: .*#public_ci_source: krav01/go-ci-standards@$public_sha#" .standards.yml
+          sed -i -E "s#(uses: krav01/go-ci-standards/.github/workflows/standards-drift.yml@)[0-9a-f]{40}#\\1$public_sha#" .github/workflows/standards-drift.yml
+          sed -i -E "s/current_version: '[^']+'/current_version: '$latest'/" .github/workflows/standards-drift.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add .standards.yml .github/workflows/standards-drift.yml
+          git commit -m "chore: adopt development standards $latest"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "chore: adopt development standards $latest" --body "Automated forward-only standards upgrade to $latest. Public workflow pin: $public_sha. Review and CI are still required; this workflow never auto-merges."
